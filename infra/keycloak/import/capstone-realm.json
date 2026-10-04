@@ -1,0 +1,182 @@
+{
+  "realm": "capstone",
+  "displayName": "Capstone AI Agent",
+  "enabled": true,
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": false,
+  "rememberMe": false,
+  "bruteForceProtected": true,
+  "failureFactor": 5,
+  "passwordPolicy": "length(12) and notUsername",
+  "internationalizationEnabled": true,
+  "supportedLocales": ["ko", "en"],
+  "defaultLocale": "ko",
+  "loginTheme": "capstone",
+  "eventsEnabled": true,
+  "eventsExpiration": 7776000,
+  "adminEventsEnabled": true,
+  "adminEventsDetailsEnabled": true,
+  "roles": {
+    "realm": [
+      { "name": "user", "description": "May sign in to the capstone apps" },
+      {
+        "name": "admin",
+        "description": "System administrator: manages users and groups of this realm, not business data",
+        "composite": true,
+        "composites": {
+          "client": { "realm-management": ["manage-users", "view-users", "query-users", "query-groups"] }
+        }
+      },
+      { "name": "offline_access" },
+      { "name": "uma_authorization" },
+      {
+        "name": "default-roles-capstone",
+        "composite": true,
+        "composites": { "realm": ["user", "offline_access", "uma_authorization"] }
+      }
+    ]
+  },
+  "defaultRole": { "name": "default-roles-capstone" },
+  "groups": [
+    { "name": "executive" },
+    { "name": "secretary" },
+    { "name": "staff" },
+    { "name": "developer" }
+  ],
+  "clients": [
+    {
+      "clientId": "open-webui",
+      "name": "Open WebUI",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${OPENWEBUI_OIDC_CLIENT_SECRET}",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "${OPENWEBUI_PUBLIC_URL}/oauth/oidc/login/callback",
+        "${OPENWEBUI_PUBLIC_URL}/oauth/oidc/callback"
+      ],
+      "webOrigins": ["${OPENWEBUI_PUBLIC_URL}"],
+      "attributes": {
+        "post.logout.redirect.uris": "${OPENWEBUI_PUBLIC_URL}/*"
+      },
+      "protocolMappers": [
+        {
+          "name": "groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "config": {
+            "claim.name": "groups",
+            "full.path": "false",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
+          "name": "realm-roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "config": {
+            "claim.name": "realm_access.roles",
+            "multivalued": "true",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "admin-portal",
+      "name": "Capstone admin portal (users & permissions)",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": ["${ADMIN_PORTAL_PUBLIC_URL}/*"],
+      "webOrigins": ["${ADMIN_PORTAL_PUBLIC_URL}"],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "${ADMIN_PORTAL_PUBLIC_URL}/*"
+      }
+    },
+    {
+      "clientId": "gateway",
+      "name": "Agent Gateway (service account: reads users and groups)",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${GATEWAY_KC_CLIENT_SECRET}",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true
+    }
+  ],
+  "users": [
+    {
+      "username": "service-account-gateway",
+      "enabled": true,
+      "serviceAccountClientId": "gateway",
+      "clientRoles": { "realm-management": ["view-users"] }
+    },
+    {
+      "username": "ceo",
+      "email": "ceo@example.com",
+      "emailVerified": true,
+      "firstName": "대표",
+      "lastName": "김",
+      "enabled": true,
+      "realmRoles": ["default-roles-capstone"],
+      "groups": ["/executive"],
+      "credentials": [{ "type": "password", "value": "${DEMO_USER_PASSWORD}", "temporary": false }]
+    },
+    {
+      "username": "secretary",
+      "email": "secretary@example.com",
+      "emailVerified": true,
+      "firstName": "간사",
+      "lastName": "이",
+      "enabled": true,
+      "realmRoles": ["default-roles-capstone"],
+      "groups": ["/secretary"],
+      "credentials": [{ "type": "password", "value": "${DEMO_USER_PASSWORD}", "temporary": false }]
+    },
+    {
+      "username": "staff",
+      "email": "staff@example.com",
+      "emailVerified": true,
+      "firstName": "실무자",
+      "lastName": "박",
+      "enabled": true,
+      "realmRoles": ["default-roles-capstone"],
+      "groups": ["/staff"],
+      "credentials": [{ "type": "password", "value": "${DEMO_USER_PASSWORD}", "temporary": false }]
+    },
+    {
+      "username": "sysadmin",
+      "email": "sysadmin@example.com",
+      "emailVerified": true,
+      "firstName": "관리자",
+      "lastName": "최",
+      "enabled": true,
+      "realmRoles": ["default-roles-capstone", "admin"],
+      "groups": ["/developer"],
+      "credentials": [{ "type": "password", "value": "${DEMO_USER_PASSWORD}", "temporary": false }]
+    }
+  ]
+}

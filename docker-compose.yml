@@ -1,0 +1,180 @@
+name: capstone
+
+# All ports bind to 127.0.0.1 on the server. Reach them through an SSH tunnel
+# (see README) until HTTPS + public ports are set up.
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      KEYCLOAK_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
+      OPENWEBUI_DB_PASSWORD: ${OPENWEBUI_DB_PASSWORD}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./infra/postgres/init.sh:/docker-entrypoint-initdb.d/10-init.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.8.0
+    restart: unless-stopped
+    command: start-dev --import-realm
+    mem_limit: 1g
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USER}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      # Browser uses the public URL; containers (Open WebUI, gateway) use http://keycloak:8080.
+      KC_HOSTNAME: ${KEYCLOAK_PUBLIC_URL}
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+      KC_HTTP_ENABLED: "true"
+      KC_HEALTH_ENABLED: "true"
+      JAVA_OPTS_KC_HEAP: "-Xms64m -Xmx512m"
+      # Placeholders used by infra/keycloak/capstone-realm.json
+      OPENWEBUI_PUBLIC_URL: ${OPENWEBUI_PUBLIC_URL}
+      ADMIN_PORTAL_PUBLIC_URL: ${ADMIN_PORTAL_PUBLIC_URL}
+      OPENWEBUI_OIDC_CLIENT_SECRET: ${OPENWEBUI_OIDC_CLIENT_SECRET}
+      GATEWAY_KC_CLIENT_SECRET: ${GATEWAY_KC_CLIENT_SECRET}
+      DEMO_USER_PASSWORD: ${DEMO_USER_PASSWORD}
+    volumes:
+      - ./infra/keycloak/import:/opt/keycloak/data/import:ro
+      - ./infra/keycloak/themes/capstone:/opt/keycloak/themes/capstone:ro
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          exec 3<>/dev/tcp/127.0.0.1/9000 &&
+          printf 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 &&
+          grep -q '"status": "UP"' <&3
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  gateway:
+    build: .
+    restart: unless-stopped
+    environment:
+      BACKEND_API_KEY: ${BACKEND_API_KEY}
+      OWUI_FORWARD_JWT_SECRET: ${OWUI_FORWARD_JWT_SECRET}
+      PERMISSIONS_FILE: /app/config/permissions.yaml
+      APP_DATABASE_URL: postgresql://app:${APP_DB_PASSWORD}@postgres:5432/app
+      KEYCLOAK_INTERNAL_URL: http://keycloak:8080
+      KEYCLOAK_REALM: capstone
+      GATEWAY_KC_CLIENT_ID: gateway
+      GATEWAY_KC_CLIENT_SECRET: ${GATEWAY_KC_CLIENT_SECRET}
+    volumes:
+      - ./config:/app/config:ro
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:v0.11.4
+    restart: unless-stopped
+    environment:
+      WEBUI_URL: ${OPENWEBUI_PUBLIC_URL}
+      WEBUI_NAME: Capstone AI Agent   # shown as "Capstone AI Agent (Open WebUI)"
+      WEBUI_SECRET_KEY: ${WEBUI_SECRET_KEY}
+      DATABASE_URL: postgresql://openwebui:${OPENWEBUI_DB_PASSWORD}@postgres:5432/openwebui
+      # Env is the source of truth; admin-panel changes do not persist across restarts.
+      ENABLE_PERSISTENT_CONFIG: "false"
+
+      # --- Agents: the gateway is the only model provider ---
+      ENABLE_OLLAMA_API: "false"
+      ENABLE_OPENAI_API: "true"
+      OPENAI_API_BASE_URL: http://gateway:8000/v1
+      OPENAI_API_KEY: ${BACKEND_API_KEY}
+      ENABLE_DIRECT_CONNECTIONS: "false"
+      ENABLE_EVALUATION_ARENA_MODELS: "false"
+      # Admins see only the agents their groups allow — same rule the gateway enforces
+      BYPASS_ADMIN_ACCESS_CONTROL: "false"
+      # Signed JWT (X-OpenWebUI-User-Jwt) instead of forgeable plain headers
+      ENABLE_FORWARD_USER_INFO_HEADERS: "true"
+      FORWARD_USER_INFO_HEADER_JWT_SECRET: ${OWUI_FORWARD_JWT_SECRET}
+
+      # --- SSO only (Keycloak) ---
+      ENABLE_LOGIN_FORM: "false"
+      ENABLE_PASSWORD_AUTH: "false"
+      OAUTH_AUTO_REDIRECT: "true"            # skip Open WebUI's own sign-in page, go straight to Keycloak
+      ENABLE_SIGNUP: "false"
+      ENABLE_OAUTH_SIGNUP: "true"
+      OAUTH_MERGE_ACCOUNTS_BY_EMAIL: "false"
+      OAUTH_PROVIDER_NAME: SSO
+      OPENID_PROVIDER_URL: http://keycloak:8080/realms/capstone/.well-known/openid-configuration
+      OAUTH_CLIENT_ID: open-webui
+      OAUTH_CLIENT_SECRET: ${OPENWEBUI_OIDC_CLIENT_SECRET}
+      OAUTH_SCOPES: openid email profile
+      ENABLE_OAUTH_ROLE_MANAGEMENT: "true"
+      OAUTH_ROLES_CLAIM: realm_access.roles
+      OAUTH_ALLOWED_ROLES: user,admin
+      OAUTH_ADMIN_ROLES: admin
+      ENABLE_OAUTH_GROUP_MANAGEMENT: "true"
+      ENABLE_OAUTH_GROUP_CREATION: "false"   # groups come from permissions.yaml via sync_openwebui
+      OAUTH_GROUPS_CLAIM: groups
+      ENABLE_API_KEYS: "true"                # admin key for gateway.sync_openwebui
+
+      # --- Data protection ---
+      ENABLE_ADMIN_CHAT_ACCESS: "false"
+      ENABLE_ADMIN_EXPORT: "false"
+      ENABLE_COMMUNITY_SHARING: "false"
+      ENABLE_CODE_INTERPRETER: "false"
+      ENABLE_VERSION_UPDATE_CHECK: "false"
+
+      # --- Background tasks would otherwise call our agents with Open WebUI's own prompts ---
+      ENABLE_TITLE_GENERATION: "false"
+      ENABLE_TAGS_GENERATION: "false"
+      ENABLE_FOLLOW_UP_GENERATION: "false"
+      ENABLE_SEARCH_QUERY_GENERATION: "false"
+      ENABLE_RETRIEVAL_QUERY_GENERATION: "false"
+
+      # --- RAG lives in our backend: don't load Open WebUI's local embedding model (saves RAM) ---
+      RAG_EMBEDDING_ENGINE: openai
+      BYPASS_EMBEDDING_AND_RETRIEVAL: "true"
+    volumes:
+      - owui-data:/app/backend/data
+      # Copied to /static/custom.css at startup; font + text size, see infra/open-webui/custom.css
+      - ./infra/open-webui/custom.css:/app/build/static/custom.css:ro
+    ports:
+      - "127.0.0.1:3000:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+      gateway:
+        condition: service_started
+
+  admin-portal:
+    # 사용자 · 권한 관리 page. Static files only; it calls the Keycloak Admin API with the admin's own token.
+    image: nginx:1.29-alpine
+    restart: unless-stopped
+    environment:
+      KEYCLOAK_PUBLIC_URL: ${KEYCLOAK_PUBLIC_URL}
+    volumes:
+      - ./admin-portal:/usr/share/nginx/html:ro
+      - ./config/permissions.yaml:/srv/config/permissions.yaml:ro
+      - ./infra/admin-portal/default.conf.template:/etc/nginx/templates/default.conf.template:ro
+    ports:
+      - "127.0.0.1:3001:80"
+
+volumes:
+  pgdata:
+  owui-data:

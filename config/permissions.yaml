@@ -1,0 +1,46 @@
+# Single source of truth for authorization.
+# Read by the gateway (enforcement) and by gateway/sync_openwebui.py (Open WebUI model visibility).
+# Group names must match the Keycloak group names exactly.
+#
+# Two independent axes:
+#   - Keycloak realm role (user / admin) = who may manage the system. `admin` alone grants NO agents or data.
+#   - Business group (below)            = which agents a person may use and how sensitive the data they may see.
+# A person can have both, e.g. an operator who is also a developer: role admin + group developer.
+
+classification_levels:
+  1: 공개      # public
+  2: 사내      # internal
+  3: 대외비    # confidential
+  4: 극비      # top secret
+
+agents:
+  super-agent:
+    name: Super Agent
+    description: 질문을 분석해 경영자문·뉴스·회의지원 Agent에 분배하고 결과를 종합합니다.
+  advisory-agent:
+    name: 경영자문 Agent
+    description: 공시·산업 리포트·사내 경영정보 기반 전략 자문 (CSO vs CFO 관점).
+  news-agent:
+    name: 뉴스 Briefing Agent
+    description: 경영 관련 뉴스 수집·요약 및 So-What 도출.
+  meeting-agent:
+    name: 회의지원 Agent
+    description: 회의록 요약, Action Item 추출·추적, 사전 참고자료 제공.
+
+groups:
+  executive:
+    description: 경영진 (C-Level)
+    clearance: 4
+    agents: [super-agent, advisory-agent, news-agent, meeting-agent]
+  secretary:
+    description: 회의체 간사
+    clearance: 3          # 대외비 — will be narrowed to own meetings once meeting membership exists
+    agents: [super-agent, news-agent, meeting-agent]
+  staff:
+    description: 실무자 / 분석가
+    clearance: 2
+    agents: [super-agent, advisory-agent, news-agent, meeting-agent]
+  developer:
+    description: 개발팀 — 모든 Agent 테스트 가능, 공개 자료만 열람
+    clearance: 1
+    agents: [super-agent, advisory-agent, news-agent, meeting-agent]

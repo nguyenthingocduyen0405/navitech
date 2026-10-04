@@ -1,0 +1,302 @@
+/* Capstone overrides for Open WebUI — loaded by Open WebUI from /static/custom.css.
+   Same font and brand colours as the login theme (infra/keycloak/themes/capstone) and admin-portal. */
+@import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css");
+
+:root {
+  --cap-font: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui,
+    "Apple SD Gothic Neo", "Malgun Gothic", "Segoe UI", sans-serif;
+  --cap-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  /* brand */
+  --cap-gradient: linear-gradient(135deg, #4f46e5 0%, #7c3aed 60%, #c026d3 100%);
+  --cap-brand: #4f46e5;
+  --cap-soft: #eef0ff;
+  --cap-soft-text: #312e81;
+}
+
+.dark {
+  --cap-gradient: linear-gradient(135deg, #6366f1 0%, #8b5cf6 60%, #d946ef 100%);
+  --cap-brand: #a5b4fc;
+  --cap-soft: rgba(99, 102, 241, 0.18);
+  --cap-soft-text: #e0e7ff;
+}
+
+/* ---- brand colour accents ---- */
+
+/* send / voice buttons in the message box */
+#send-message-button,
+form button.bg-black.rounded-full,
+form button.dark\:bg-white.rounded-full {
+  background: var(--cap-gradient) !important;
+  color: #ffffff !important;
+  box-shadow: 0 6px 16px -6px rgba(124, 58, 237, 0.7);
+}
+
+/* the user's own messages */
+.chat-user .rounded-3xl {
+  background: var(--cap-gradient) !important;
+  color: #ffffff !important;
+  box-shadow: 0 8px 20px -12px rgba(124, 58, 237, 0.7);
+}
+
+.chat-user .rounded-3xl * {
+  color: inherit !important;
+}
+
+/* current chat in the sidebar */
+#sidebar-chat-item.selected {
+  background: var(--cap-soft) !important;
+  color: var(--cap-soft-text) !important;
+}
+
+/* agent name above each answer */
+#response-message-model-name {
+  background: var(--cap-gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent !important;
+  font-weight: 700;
+}
+
+.markdown-prose a {
+  color: var(--cap-brand) !important;
+}
+
+::selection {
+  background: rgba(124, 58, 237, 0.22);
+}
+
+/* ---- surfaces: tinted page, white panels with borders ---- */
+:root {
+  --cap-page: #e1e4f0;
+  --cap-main: #f4f5fb;
+  --cap-panel: #ffffff;
+  --cap-line: #e2e0f0;
+  --cap-control: #ffffff;
+  --cap-control-text: #3f3f46;
+  --cap-label: #66667a;
+}
+
+.dark {
+  --cap-page: #09090f;
+  --cap-main: #12121b;
+  --cap-panel: #16161f;
+  --cap-line: #2b2b3a;
+  --cap-control: #1d1d29;
+  --cap-control-text: #d6d6e0;
+  --cap-label: #a0a0b4;
+}
+
+/* page behind everything */
+.app > .h-screen {
+  background: var(--cap-page) !important;
+}
+
+/* main chat area (top bar + messages + message box) = a framed window:
+   border, rounded corners, own background with a soft brand glow */
+#chat-container div:has(> nav.sticky.top-0) {
+  margin: 10px;
+  height: calc(100% - 20px) !important;
+  border: 1px solid var(--cap-line);
+  border-radius: 20px;
+  overflow: clip;
+  background:
+    radial-gradient(56rem 22rem at 35% -8rem, rgba(99, 102, 241, 0.12), transparent 70%),
+    radial-gradient(40rem 18rem at 95% -6rem, rgba(217, 70, 239, 0.08), transparent 70%),
+    var(--cap-main);
+  box-shadow: 0 20px 50px -30px rgba(49, 46, 129, 0.45);
+}
+
+/* top bar of the chat: solid, with a bottom border (instead of the fade-out gradient) */
+#navbar-bg-gradient-to-b {
+  display: none !important;
+}
+
+nav.sticky.top-0 {
+  background: color-mix(in srgb, var(--cap-main) 88%, transparent) !important;
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--cap-line);
+}
+
+/* sidebar = white panel with a border */
+#sidebar {
+  background: var(--cap-panel) !important;
+  border-right: 1px solid var(--cap-line);
+  box-shadow: 6px 0 24px -18px rgba(49, 46, 129, 0.35);
+}
+
+/* sidebar menu: real buttons */
+#sidebar :is(#sidebar-new-chat-button, #sidebar-search-button, #sidebar-notes-button, #sidebar-workspace-button) {
+  margin: 3px 0;
+  border: 1px solid var(--cap-line);
+  background: var(--cap-control) !important;
+  color: var(--cap-control-text) !important;
+  font-weight: 600;
+}
+
+#sidebar :is(#sidebar-search-button, #sidebar-notes-button, #sidebar-workspace-button):hover {
+  background: var(--cap-soft) !important;
+  border-color: color-mix(in srgb, var(--cap-brand) 35%, transparent);
+  color: var(--cap-soft-text) !important;
+}
+
+#sidebar a#sidebar-new-chat-button {
+  background: var(--cap-gradient) !important;
+  border-color: transparent;
+  box-shadow: 0 8px 18px -10px rgba(124, 58, 237, 0.8);
+}
+
+#sidebar a#sidebar-new-chat-button,
+#sidebar a#sidebar-new-chat-button * {
+  color: #ffffff !important;
+}
+
+#sidebar a#sidebar-new-chat-button:hover {
+  filter: brightness(1.08);
+}
+
+/* section titles (폴더, 채팅, 오늘…) and their small actions */
+#sidebar button.text-xs,
+#sidebar .text-xs.text-gray-500,
+#sidebar button.text-gray-300 {
+  color: var(--cap-label) !important;
+  font-weight: 700;
+}
+
+/* chat list */
+#sidebar-chat-item {
+  border: 1px solid transparent;
+}
+
+#sidebar-chat-item:hover {
+  background: var(--cap-page) !important;
+  border-color: var(--cap-line);
+}
+
+#sidebar-chat-item.selected {
+  background: var(--cap-soft) !important;
+  border-color: color-mix(in srgb, var(--cap-brand) 35%, transparent);
+  color: var(--cap-soft-text) !important;
+  font-weight: 600;
+}
+
+/* ---- buttons: border + background so they read as buttons ---- */
+
+/* every rounded button in the chat window (except the gradient send / voice button) */
+#chat-pane button:is(.rounded-lg, .rounded-xl, .rounded-2xl, .rounded-full):not(#send-message-button):not(.bg-black) {
+  border: 1px solid var(--cap-line);
+  background-color: var(--cap-control);
+  color: var(--cap-control-text);
+}
+
+#chat-pane button:is(.rounded-lg, .rounded-xl, .rounded-2xl, .rounded-full):not(#send-message-button):not(.bg-black):hover {
+  background-color: var(--cap-soft);
+  border-color: color-mix(in srgb, var(--cap-brand) 40%, transparent);
+  color: var(--cap-soft-text);
+}
+
+/* small icon buttons in the sidebar (collapse, new folder, more…) and the user menu */
+#sidebar button.rounded-lg,
+#sidebar button.text-gray-300 {
+  border: 1px solid var(--cap-line);
+  border-radius: 8px;
+  background: var(--cap-control) !important;
+  color: var(--cap-control-text) !important;
+}
+nav.sticky button.size-6 {
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid var(--cap-line);
+  border-radius: 10px;
+  background: var(--cap-control) !important;
+  color: var(--cap-control-text) !important;
+}
+
+/* actions under each message (edit, copy, read aloud, 👍 👎, regenerate…) */
+#messages-container button.rounded-lg.p-1\.5 {
+  margin-right: 4px;
+  border: 1px solid var(--cap-line);
+  border-radius: 10px !important;
+  background: var(--cap-control) !important;
+  color: var(--cap-control-text) !important;
+}
+
+nav.sticky button.size-6:hover,
+#messages-container button.rounded-lg.p-1\.5:hover {
+  background: var(--cap-soft) !important;
+  border-color: color-mix(in srgb, var(--cap-brand) 40%, transparent);
+  color: var(--cap-soft-text) !important;
+}
+
+/* "thinking" toggle above the answer */
+#messages-container button.text-start.text-gray-500 {
+  padding: 2px 12px !important;
+  border: 1px solid var(--cap-line);
+  border-radius: 9999px;
+  background: var(--cap-control);
+  color: var(--cap-label) !important;
+  font-size: 0.875rem !important;
+}
+
+/* message box: solid panel on the tinted page */
+#message-input-container {
+  background: var(--cap-panel) !important;
+  border: 1px solid var(--cap-line) !important;
+  box-shadow: 0 16px 40px -22px rgba(49, 46, 129, 0.45) !important;
+}
+
+#message-input-container:focus-within {
+  border-color: color-mix(in srgb, var(--cap-brand) 45%, transparent) !important;
+}
+
+/* message box: + / microphone / agent picker */
+#input-menu-button,
+#message-input-container button.rounded-full.p-1\.5 {
+  border: 1px solid var(--cap-line);
+  background: var(--cap-page) !important;
+  color: var(--cap-control-text) !important;
+}
+
+#model-selector-model-button {
+  padding: 4px 12px;
+  border: 1px solid color-mix(in srgb, var(--cap-brand) 30%, transparent);
+  border-radius: 9999px;
+  background: var(--cap-soft);
+  color: var(--cap-soft-text) !important;
+  font-weight: 600;
+}
+
+/* Whole UI 10% larger by default. Open WebUI sizes are rem-based, so text and spacing scale together;
+   each user's own "UI Scale" slider (Settings > Interface) still multiplies on top of this. */
+html {
+  font-size: calc(110% * var(--app-text-scale, 1)) !important;
+}
+
+/* Korean-friendly font everywhere (Inter, the default, has no Hangul). */
+html,
+body,
+button,
+input,
+textarea,
+select {
+  font-family: var(--cap-font) !important;
+}
+
+code,
+pre,
+kbd,
+.font-mono,
+.cm-editor {
+  font-family: var(--cap-mono) !important;
+}
+
+/* Chat reading comfort */
+.markdown-prose {
+  font-size: 1rem !important;
+  line-height: 1.75 !important;
+  letter-spacing: -0.005em;
+}
+
+#chat-input {
+  font-size: 1rem !important;
+  line-height: 1.6 !important;
+}
