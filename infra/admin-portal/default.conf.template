@@ -1,4 +1,4 @@
-# Rendered by the nginx image (envsubst) at startup.
+# nginx 이미지가 시작할 때 envsubst로 환경 변수를 채워 넣습니다.
 server {
     listen 80;
     root /usr/share/nginx/html;
@@ -13,7 +13,7 @@ server {
         return 200 '{"keycloakUrl":"${KEYCLOAK_PUBLIC_URL}","realm":"capstone","clientId":"admin-portal"}';
     }
 
-    # Group → clearance / agents table, shown read-only on the page
+    # 그룹 → 열람 등급 / Agent 표. 페이지에서 읽기 전용으로 표시
     location = /permissions.yaml {
         default_type text/plain;
         alias /srv/config/permissions.yaml;

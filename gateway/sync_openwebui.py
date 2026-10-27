@@ -1,11 +1,11 @@
-"""Make Open WebUI's groups and model visibility match config/permissions.yaml.
+"""Open WebUI의 그룹과 모델 표시 권한을 config/permissions.yaml에 맞춥니다.
 
-Open WebUI only shows a connection model to non-admin users once it has an access
-grant, so run this after first start and after every change to permissions.yaml:
+Open WebUI는 접근 권한이 부여된 모델만 일반 사용자에게 보여 주므로,
+최초 실행 후와 permissions.yaml을 바꿀 때마다 실행합니다:
 
     docker compose exec -e OPENWEBUI_ADMIN_API_KEY=sk-... gateway python -m gateway.sync_openwebui
 
-Group membership itself comes from Keycloak on each login (groups are matched by name).
+그룹 소속 자체는 로그인할 때마다 Keycloak에서 가져옵니다 (그룹 이름으로 매칭).
 """
 
 import os
@@ -27,7 +27,7 @@ def main() -> None:
     base_url = os.environ.get("OPENWEBUI_INTERNAL_URL", "http://open-webui:8080")
     api_key = os.environ.get("OPENWEBUI_ADMIN_API_KEY")
     if not api_key:
-        sys.exit("Set OPENWEBUI_ADMIN_API_KEY (Open WebUI > Settings > Account > API Keys, as an admin)")
+        sys.exit("OPENWEBUI_ADMIN_API_KEY를 설정하세요 (관리자 계정으로 Open WebUI > 설정 > 계정 > API 키에서 발급)")
 
     with httpx.Client(base_url=base_url, headers={"Authorization": f"Bearer {api_key}"}, timeout=30) as client:
         groups = {g["name"]: g for g in _ok(client.get("/api/v1/groups/")).json()}
@@ -37,7 +37,7 @@ def main() -> None:
                     client.post("/api/v1/groups/create", json={"name": name, "description": policy.description})
                 ).json()
                 groups[name] = created
-                print(f"created group {name}")
+                print(f"그룹 생성: {name}")
 
         for agent in permissions.agents.values():
             readers = [name for name, policy in permissions.groups.items() if agent.id in policy.agents]
@@ -45,7 +45,7 @@ def main() -> None:
                 {"principal_type": "group", "principal_id": groups[name]["id"], "permission": "read"}
                 for name in readers
             ]
-            # Creates the model entry if it does not exist yet, then sets name/description.
+            # 모델 항목이 없으면 먼저 만들고, 이름과 설명을 설정합니다.
             _ok(client.post("/api/v1/models/model/access/update", json={"id": agent.id, "name": agent.name, "access_grants": grants}))
             _ok(
                 client.post(
@@ -59,7 +59,7 @@ def main() -> None:
                     },
                 )
             )
-            print(f"{agent.id}: visible to {', '.join(readers) or '(nobody)'}")
+            print(f"{agent.id}: 표시 대상 그룹 → {', '.join(readers) or '(없음)'}")
 
 
 if __name__ == "__main__":

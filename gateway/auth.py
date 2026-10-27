@@ -17,20 +17,20 @@ class AuthError(Exception):
 
 
 def check_api_key(authorization: str | None, expected: str) -> None:
-    """Only Open WebUI (and our own services) hold the backend API key."""
+    """Backend API 키는 Open WebUI(와 우리 서비스)만 가지고 있습니다."""
     presented = (authorization or "").encode()
     if not secrets.compare_digest(presented, f"Bearer {expected}".encode()):
-        raise AuthError(401, "invalid API key")
+        raise AuthError(401, "API 키가 올바르지 않습니다.")
 
 
 def verify_openwebui_jwt(token: str | None, secret: str) -> dict:
-    """Verify the HS256 JWT Open WebUI sends when FORWARD_USER_INFO_HEADER_JWT_SECRET is set.
+    """FORWARD_USER_INFO_HEADER_JWT_SECRET이 설정된 경우 Open WebUI가 보내는 HS256 JWT를 검증합니다.
 
-    Plain X-OpenWebUI-User-* headers are deliberately not accepted: anyone who can
-    reach the gateway could forge them.
+    일반 X-OpenWebUI-User-* 헤더는 의도적으로 받지 않습니다:
+    Gateway에 접근할 수 있는 누구나 위조할 수 있기 때문입니다.
     """
     if not token:
-        raise AuthError(401, "missing user token")
+        raise AuthError(401, "사용자 토큰이 없습니다.")
     try:
         return jwt.decode(
             token,
@@ -40,7 +40,7 @@ def verify_openwebui_jwt(token: str | None, secret: str) -> dict:
             options={"require": ["exp", "iat", "iss", "sub", "email"]},
         )
     except jwt.PyJWTError as exc:
-        raise AuthError(401, f"invalid user token: {exc}") from exc
+        raise AuthError(401, f"사용자 토큰이 유효하지 않습니다: {exc}") from exc
 
 
 async def build_user_context(

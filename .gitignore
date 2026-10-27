@@ -1,6 +1,13 @@
 .env
+.env.*
+!.env.example
+*.bak*
 .venv/
 __pycache__/
 *.pyc
 .pytest_cache/
 *.pem
+# 별도 저장소 (flopsoda/capstone_demo) — README의 설치 방법 참고
+/agent-backend/
+# download_models.sh로 받는 모델 파일 (수백 MB)
+infra/speech-service/models/

@@ -1,6 +1,6 @@
-"""Placeholder agents so the whole pipeline runs end to end.
+"""전체 흐름을 처음부터 끝까지 돌려 보기 위한 임시(mock) Agent.
 
-Replace each MockAgent with the real implementation; keep the `run` signature.
+각 MockAgent를 실제 구현으로 교체하되 `run` 시그니처는 그대로 유지하세요.
 """
 
 from collections.abc import AsyncIterator
@@ -9,7 +9,7 @@ from agents.base import AgentEvent, last_user_text, require_access
 from shared.access import can_read
 from shared.user_context import UserContext
 
-# Fake corpus to demonstrate data-level filtering. The real one lives in the RAG store.
+# 자료 단위 권한 필터링을 보여 주기 위한 가짜 문서 모음. 실제 자료는 RAG 저장소에 있습니다.
 MOCK_DOCUMENTS = [
     {"id": "dart-2026-q2-report", "classification": 1, "source": "DART"},
     {"id": "industry-hbm-trend", "classification": 2, "source": "증권사 리포트"},

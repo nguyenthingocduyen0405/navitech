@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Navitech 음성 등록</title>
+<link rel="icon" href="/static/favicon.png">
+<style>
+  :root {
+    --bg: #f4f6fb; --card: #ffffff; --text: #172033; --muted: #5b6477; --line: #dfe4ee;
+    --brand: #2563eb; --brand-2: #0ea5e9; --ok: #15803d; --ok-bg: #e8f6ee; --warn: #b45309; --warn-bg: #fdf3e4;
+    --err: #b91c1c; --err-bg: #fdeaea; --rec: #dc2626;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1420; --card: #171e2d; --text: #e6eaf2; --muted: #9aa4b8; --line: #2a3346;
+      --ok-bg: #12301f; --warn-bg: #33270f; --err-bg: #3a1717;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.6 "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif; }
+  header { background: linear-gradient(120deg, var(--brand), var(--brand-2)); color: #fff; }
+  .bar { max-width: 760px; margin: 0 auto; padding: 18px 16px; display: flex; align-items: center; gap: 12px; }
+  .bar h1 { font-size: 18px; margin: 0; flex: 1; }
+  .bar .who { font-size: 13px; opacity: .9; }
+  .bar a { color: #fff; font-size: 13px; }
+  main { max-width: 760px; margin: 0 auto; padding: 20px 16px 48px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px; margin-bottom: 16px; }
+  .card h2 { font-size: 16px; margin: 0 0 8px; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .notice { border-radius: 8px; padding: 10px 12px; font-size: 14px; margin-top: 10px; }
+  .notice.ok { background: var(--ok-bg); color: var(--ok); }
+  .notice.warn { background: var(--warn-bg); color: var(--warn); }
+  .notice.err { background: var(--err-bg); color: var(--err); }
+  .consent { font-size: 13px; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin: 8px 0 12px; }
+  .consent dt { font-weight: 600; margin-top: 4px; }
+  .consent dd { margin: 0 0 4px; color: var(--muted); }
+  label.check { display: flex; gap: 8px; align-items: flex-start; font-weight: 600; cursor: pointer; }
+  label.check input { margin-top: 4px; width: 18px; height: 18px; }
+  .fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .fields label { font-size: 13px; color: var(--muted); display: block; margin-bottom: 4px; }
+  input[type=text] { width: 100%; padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px;
+                     background: var(--card); color: var(--text); font: inherit; }
+  .sample { border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-top: 12px; }
+  .sample .head { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+  .sample .head .state { margin-left: auto; font-weight: 600; }
+  .sample .head .state.done { color: var(--ok); }
+  .script { font-size: 16px; margin: 8px 0 10px; line-height: 1.7; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  button { font: inherit; border: 0; border-radius: 8px; padding: 9px 14px; cursor: pointer; background: var(--brand); color: #fff; }
+  button.secondary { background: transparent; color: var(--text); border: 1px solid var(--line); }
+  button.danger { background: transparent; color: var(--err); border: 1px solid var(--err); }
+  button.recording { background: var(--rec); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  audio { height: 34px; max-width: 100%; }
+  .timer { font-variant-numeric: tabular-nums; font-size: 13px; color: var(--muted); min-width: 44px; }
+  .primary-action { width: 100%; padding: 12px; font-size: 16px; margin-top: 16px; }
+  @media (max-width: 560px) { .fields { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <h1>Navitech 음성 등록</h1>
+    <span class="who" id="who"></span>
+    <a href="/voice/logout">로그아웃</a>
+  </div>
+</header>
+<main>
+  <section class="card" id="status">
+    <h2>등록 상태</h2>
+    <div id="status-body" class="muted">불러오는 중…</div>
+  </section>
+
+  <section class="card" id="enroll-card">
+    <h2 id="enroll-title">목소리 등록</h2>
+    <p class="muted">회의 녹음에서 발언자를 자동으로 구분하기 위해 목소리 특징값을 등록합니다. 아래 세 문장을 조용한 곳에서, 평소 회의 때 말하는 크기로 읽어 주세요.</p>
+
+    <div class="consent">
+      <strong>민감정보(생체인식정보) 수집·이용 동의</strong>
+      <dl>
+        <dt>수집 항목</dt><dd>목소리 특징값(voiceprint, 숫자 벡터). 녹음 원본은 특징값 계산 직후 폐기되며 저장하지 않습니다.</dd>
+        <dt>이용 목적</dt><dd>회의 녹음 transcript와 회의록에서 발언자 식별</dd>
+        <dt>보유 기간</dt><dd>본인이 이 페이지에서 삭제할 때까지 (퇴사 시 삭제)</dd>
+        <dt>동의 거부</dt><dd>거부할 수 있으며, 거부 시 회의록에 '미확인 화자'로 표시됩니다.</dd>
+      </dl>
+    </div>
+    <label class="check"><input type="checkbox" id="consent"> 위 내용을 확인했으며 목소리 특징값의 수집·이용에 동의합니다.</label>
+
+    <div class="fields" style="margin-top:14px">
+      <div><label for="display-name">회의록 표시 이름</label><input type="text" id="display-name" maxlength="40" placeholder="예: 박지훈"></div>
+      <div><label for="title">직책 (선택)</label><input type="text" id="title" maxlength="40" placeholder="예: CFO"></div>
+    </div>
+
+    <div id="samples"></div>
+    <button class="primary-action" id="submit" disabled>등록하기</button>
+    <div id="enroll-result"></div>
+  </section>
+
+  <section class="card" id="test-card" hidden>
+    <h2>인식 확인</h2>
+    <p class="muted">아무 말이나 5초 정도 녹음하면, 등록된 목소리로 인식되는지 확인합니다.</p>
+    <div class="row">
+      <button id="test-rec">녹음 시작</button>
+      <span class="timer" id="test-timer"></span>
+    </div>
+    <div id="test-result"></div>
+  </section>
+</main>
+
+<script>
+const SCRIPTS = [
+  "안녕하세요. 저는 오늘 음성 등록을 진행하고 있습니다. 이 목소리는 회의록을 작성할 때 발언자를 구분하는 데에만 사용됩니다. 원본 녹음은 저장되지 않고, 목소리의 특징값만 안전하게 보관됩니다.",
+  "이번 분기 매출은 지난해 같은 기간보다 십이 퍼센트 증가했습니다. 다만 원자재 가격이 오르면서 영업이익률은 소폭 낮아졌고, 다음 달 경영회의에서 대응 방안을 논의할 예정입니다.",
+  "바다가 보이는 작은 마을에는 오래된 등대가 하나 있습니다. 밤이 되면 등대 불빛이 천천히 돌아가고, 사람들은 그 빛을 보며 하루를 마무리합니다.",
+];
+const MIN_SECONDS = 7;
+const recordings = [null, null, null];
+const $ = (id) => document.getElementById(id);
+
+function notice(el, kind, text) { el.innerHTML = ""; const d = document.createElement("div"); d.className = "notice " + kind; d.textContent = text; el.appendChild(d); }
+
+async function api(path, options = {}) {
+  const r = await fetch("/voice/api/" + path, { credentials: "same-origin", ...options });
+  if (r.status === 401) { location.href = "/voice/login"; throw new Error("login"); }
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(body.detail || "요청을 처리하지 못했습니다.");
+  return body;
+}
+
+function pickMime() {
+  for (const m of ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg"]) {
+    if (window.MediaRecorder && MediaRecorder.isTypeSupported(m)) return m;
+  }
+  return "";
+}
+
+// One recorder at a time; resolves with a Blob when stopped.
+function makeRecorder(button, timerEl, { maxSeconds = 60, onDone }) {
+  let rec = null, chunks = [], started = 0, tick = null;
+  button.addEventListener("click", async () => {
+    if (rec && rec.state === "recording") { rec.stop(); return; }
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+    } catch (e) { alert("마이크를 사용할 수 없습니다. 브라우저의 마이크 권한을 허용해 주세요."); return; }
+    const mime = pickMime();
+    rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+    chunks = [];
+    rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
+    rec.onstop = () => {
+      stream.getTracks().forEach((t) => t.stop());
+      clearInterval(tick);
+      button.classList.remove("recording");
+      button.textContent = "다시 녹음";
+      const seconds = (Date.now() - started) / 1000;
+      onDone(new Blob(chunks, { type: rec.mimeType || "audio/webm" }), seconds);
+    };
+    rec.start();
+    started = Date.now();
+    button.classList.add("recording");
+    button.textContent = "녹음 중지";
+    tick = setInterval(() => {
+      const s = (Date.now() - started) / 1000;
+      timerEl.textContent = s.toFixed(0) + "초";
+      if (s >= maxSeconds) rec.stop();
+    }, 250);
+  });
+}
+
+function extOf(blob) { return blob.type.includes("mp4") ? "m4a" : blob.type.includes("ogg") ? "ogg" : "webm"; }
+
+function buildSamples() {
+  const wrap = $("samples");
+  SCRIPTS.forEach((text, i) => {
+    const el = document.createElement("div");
+    el.className = "sample";
+    el.innerHTML = `<div class="head"><span>문장 ${i + 1} / ${SCRIPTS.length}</span><span class="state" id="state-${i}">미녹음</span></div>
+      <div class="script"></div>
+      <div class="row"><button id="rec-${i}">녹음 시작</button><span class="timer" id="timer-${i}"></span><span id="play-${i}"></span></div>`;
+    el.querySelector(".script").textContent = text;
+    wrap.appendChild(el);
+    makeRecorder($(`rec-${i}`), $(`timer-${i}`), {
+      onDone: (blob, seconds) => {
+        const state = $(`state-${i}`);
+        if (seconds < MIN_SECONDS) {
+          recordings[i] = null; state.textContent = `너무 짧음 (${seconds.toFixed(0)}초) — 끝까지 읽어 주세요`; state.className = "state";
+        } else {
+          recordings[i] = blob; state.textContent = "녹음 완료"; state.className = "state done";
+        }
+        const audio = document.createElement("audio"); audio.controls = true; audio.src = URL.createObjectURL(blob);
+        $(`play-${i}`).replaceChildren(audio);
+        refreshSubmit();
+      },
+    });
+  });
+}
+
+function refreshSubmit() {
+  $("submit").disabled = !($("consent").checked && $("display-name").value.trim() && recordings.every(Boolean));
+}
+
+async function loadStatus() {
+  const me = await api("me");
+  $("who").textContent = me.user.name ? `${me.user.name} · ${me.user.email}` : me.user.email;
+  if (!$("display-name").value) $("display-name").value = (me.voiceprint && me.voiceprint.display_name) || me.user.name || "";
+  if (me.voiceprint && !$("title").value) $("title").value = me.voiceprint.title || "";
+  const body = $("status-body");
+  body.innerHTML = "";
+  if (me.enrolled) {
+    const v = me.voiceprint;
+    const p = document.createElement("div");
+    p.innerHTML = `<div class="notice ok"></div><p class="muted" style="margin:10px 0"></p>`;
+    p.querySelector(".notice").textContent = `등록됨 — 회의록에 "${v.title ? v.display_name + " (" + v.title + ")" : v.display_name}"(으)로 표시됩니다.`;
+    p.querySelector("p").textContent = `마지막 등록: ${new Date(v.updated_at).toLocaleString("ko-KR")} · 동의 시각: ${new Date(v.consent_at).toLocaleString("ko-KR")}`;
+    const del = document.createElement("button");
+    del.className = "danger"; del.textContent = "내 음성 정보 삭제";
+    del.onclick = async () => {
+      if (!confirm("등록된 목소리 특징값을 삭제할까요? 이후 회의록에는 '미확인 화자'로 표시됩니다.")) return;
+      await api("enroll", { method: "DELETE" });
+      await loadStatus();
+    };
+    body.append(p, del);
+    $("enroll-title").textContent = "다시 등록 (목소리 갱신)";
+    $("test-card").hidden = false;
+  } else {
+    const n = document.createElement("div");
+    n.className = "notice warn";
+    n.textContent = me.voiceprint && me.voiceprint.outdated
+      ? "인식 모델이 바뀌어 다시 등록이 필요합니다."
+      : "아직 등록하지 않았습니다. 등록하지 않으면 회의록에 '미확인 화자'로 표시됩니다.";
+    body.appendChild(n);
+    $("enroll-title").textContent = "목소리 등록";
+    $("test-card").hidden = true;
+  }
+}
+
+$("submit").addEventListener("click", async () => {
+  const btn = $("submit"), out = $("enroll-result");
+  btn.disabled = true; btn.textContent = "분석 중…";
+  const form = new FormData();
+  recordings.forEach((b, i) => form.append("samples", b, `sample-${i + 1}.${extOf(b)}`));
+  form.append("display_name", $("display-name").value.trim());
+  form.append("title", $("title").value.trim());
+  form.append("consent", "true");
+  try {
+    const r = await api("enroll", { method: "POST", body: form });
+    notice(out, "ok", `등록되었습니다: ${r.label} (녹음 간 일치도 ${r.consistency.toFixed(2)})`);
+    if (r.similar_voice_count) notice(out, "warn", `등록은 되었지만, 이미 등록된 목소리 ${r.similar_voice_count}명과 특징이 비슷해 회의에서 혼동될 수 있습니다. 회의록 초안의 발언자를 꼭 확인해 주세요.`);
+    await loadStatus();
+  } catch (e) {
+    if (e.message !== "login") notice(out, "err", e.message);
+  } finally {
+    btn.textContent = "등록하기"; refreshSubmit();
+  }
+});
+
+makeRecorder($("test-rec"), $("test-timer"), {
+  maxSeconds: 10,
+  onDone: async (blob) => {
+    const out = $("test-result");
+    notice(out, "warn", "확인 중…");
+    const form = new FormData();
+    form.append("sample", blob, `test.${extOf(blob)}`);
+    try {
+      const r = await api("test", { method: "POST", body: form });
+      if (r.recognized_as_you) notice(out, "ok", `본인 목소리로 인식되었습니다 (점수 ${r.your_score.toFixed(2)}, 기준 ${r.threshold.toFixed(2)}).`);
+      else if (r.confused_with_other) notice(out, "err", `다른 사람의 목소리로 인식되었습니다 (본인 점수 ${r.your_score.toFixed(2)}). 조용한 곳에서 다시 등록해 주세요.`);
+      else notice(out, "warn", `인식 점수가 기준보다 낮습니다 (${r.your_score.toFixed(2)} < ${r.threshold.toFixed(2)}). 다시 시도하거나 목소리를 다시 등록해 주세요.`);
+    } catch (e) {
+      if (e.message !== "login") notice(out, "err", e.message);
+    }
+  },
+});
+
+["consent", "display-name"].forEach((id) => $(id).addEventListener("input", refreshSubmit));
+$("consent").addEventListener("change", refreshSubmit);
+buildSamples();
+loadStatus().catch((e) => e.message !== "login" && notice($("status-body"), "err", e.message));
+</script>
+</body>
+</html>

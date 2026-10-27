@@ -1,167 +1,195 @@
-# navitech — C-Level AI Agent (SK × JBNU Capstone)
+# navitech — C-Level AI Agent (SK × JBNU 캡스톤)
 
-Bộ khung chạy end-to-end: **đăng nhập SSO (Keycloak) → Open WebUI → Gateway (phân quyền, audit) → 4 agent**.
-Các agent hiện là bản mock; thay bằng logic thật mà không phải sửa phần đăng nhập/phân quyền.
+**SSO 로그인(Keycloak) → Open WebUI → Gateway(권한 검사·감사 로그) → 4종 Agent**가 처음부터 끝까지 동작합니다.
+Agent는 **Agent backend**(`agent-backend/` = [flopsoda/capstone_demo](https://github.com/flopsoda/capstone_demo), LangGraph + Ollama Cloud)의 실제 Agent입니다.
+Open WebUI의 4개 모델은 backend의 **Group Agent System**에 연결되고, 그룹 슈퍼에이전트는 필요하면 **K전자 Agent System**에 A2A로 검토를 요청합니다.
 
 ```
-Open WebUI ── chọn 1 trong 4: Super Agent | 경영자문 | 뉴스 Briefing | 회의지원
-     │  OpenAI API  +  X-OpenWebUI-User-Jwt (JWT ký HS256)
+Open WebUI ── 4개 중 선택: Super Agent | 경영자문 | 뉴스 Briefing | 회의지원
+     │  OpenAI API  +  X-OpenWebUI-User-Jwt (HS256 서명 JWT)
      ▼
 Gateway (FastAPI)  gateway/
-  1. kiểm tra API key  →  2. xác minh JWT  →  3. tra group trong Keycloak
-  4. UserContext + kiểm tra quyền (config/permissions.yaml)  →  5. ghi audit_log
+  1. API 키 확인  →  2. JWT 검증  →  3. Keycloak에서 그룹 조회
+  4. UserContext 생성 + 권한 검사 (config/permissions.yaml)  →  5. audit_log 기록
      │
-     ├── super-agent ──► Super Agent ──┐ (chỉ gọi agent mà user được phép dùng)
-     ├── advisory-agent ───────────────┼──► 경영자문 Agent
-     ├── news-agent ───────────────────┼──► 뉴스 Briefing Agent
-     └── meeting-agent ────────────────┴──► 회의지원 Agent
-                                              │  shared/access.py: lọc tài liệu theo clearance
+     │  agents/remote.py: POST /api/agents/{id}/run (NDJSON 이벤트 스트림)
+     ▼
+agents-group (Group Agent System, :8001 내부)
+     ├── super-agent    ──► 그룹 슈퍼에이전트 ──┬─ 위임 ─► 그룹 미팅 / 뉴스 / 경영자문 에이전트
+     │                                          └─ A2A ──► agents-k (K전자 Agent System, :8000 내부)
+     │                                                       K전자 슈퍼에이전트 ─ 위임 ─► 미팅 / 뉴스 / 경영자문
+     ├── advisory-agent ──► 그룹 경영자문 에이전트 (run_mna_review)
+     ├── news-agent     ──► 그룹 뉴스 에이전트 (run_company_risk_news_analysis)
+     └── meeting-agent  ──► 그룹 미팅 에이전트 (run_meeting_context_retrieval)
+                                              │
                                               ▼
-                              Postgres (pgvector) · Keycloak · LLM API
+                              Ollama Cloud LLM · fixture 데이터 (agent-backend/backend/app/systems/*/data)
 ```
 
-## Thư mục
+Gateway가 backend 이벤트를 OpenAI 스트림으로 바꿉니다: 호출한 Agent 자신의 답변 토큰 → 답변,
+위임 · A2A · Workflow Tool 진행 상황 → 접을 수 있는 "생각" 블록, Workflow 결과의 회의 · 기사 id → 감사 로그.
+Super Agent가 사용자에게 권한이 없는 전문 Agent(K전자 쪽 포함)에게 위임하려 하면 Gateway가 그 시점에 응답을 끊습니다.
 
-| Đường dẫn | Nội dung | Phụ trách |
+## 디렉터리 구성
+
+| 경로 | 내용 | 담당 |
 |---|---|---|
-| `config/permissions.yaml` | **Nguồn duy nhất** cho phân quyền: group → clearance, agent được dùng | Auth |
-| `gateway/` | API tương thích OpenAI, xác thực, phân quyền, audit log, script đồng bộ Open WebUI | Auth |
-| `admin-portal/` | Trang 사용자 · 권한 관리 (HTML/JS tĩnh, gọi Keycloak Admin API) | Auth |
-| `infra/keycloak/capstone-realm.json` | Realm, role, group, client, tài khoản demo | Auth |
-| `shared/user_context.py` | `UserContext` — truyền vào mọi agent / tool | Chung |
-| `shared/access.py` | Quy tắc lọc dữ liệu theo quyền cho RAG / ontology | Chung (Auth + RAG) |
-| `agents/base.py` | Interface `Agent.run(messages, ctx, task)` và `AgentEvent` | Agent |
-| `agents/mock.py`, `agents/super_agent.py` | Agent giả — thay bằng agent thật | Agent |
-| `tests/` | Test bảo mật của gateway | Auth |
+| `config/permissions.yaml` | 권한의 **단일 기준**: 그룹 → 열람 등급, 사용 가능한 Agent | Auth |
+| `gateway/` | OpenAI 호환 API, 인증, 권한 검사, 감사 로그, Open WebUI 동기화 스크립트 | Auth |
+| `admin-portal/` | 사용자 · 권한 관리 페이지 (정적 HTML/JS, Keycloak Admin API 호출) | Auth |
+| `infra/keycloak/import/capstone-realm.json` | Realm, 역할, 그룹, 클라이언트, 데모 계정 | Auth |
+| `shared/user_context.py` | `UserContext` — 모든 Agent / 도구에 전달 | 공통 |
+| `shared/access.py` | RAG / 온톨로지용 권한 기반 데이터 필터 규칙 | 공통 (Auth + RAG) |
+| `agents/base.py` | `Agent.run(messages, ctx, task)` 인터페이스와 `AgentEvent` | Agent |
+| `agents/remote.py` | 실제 Agent: Agent backend 호출 + 이벤트 변환 + 위임 권한 검사 | Agent |
+| `agents/mock.py`, `agents/super_agent.py` | 가짜 Agent — `AGENT_BACKEND_URL`이 비어 있을 때 (테스트, 로컬 실행) | Agent |
+| `agent-backend/` | Agent backend 저장소 (flopsoda/capstone_demo, private) — `backend/`만 이미지로 빌드 | Agent |
+| `infra/agent-backend/Dockerfile` | Agent backend 이미지. `agents-k`, `agents-group` 두 서비스가 같은 Dockerfile 사용 | Agent |
+| `tests/` | Gateway 보안 테스트 | Auth |
 
-## Chạy trên server
+## 서버에서 실행
 
 ```bash
-# trên instance
+# 인스턴스에서
 cd ~/capstone-agent
-python3 scripts/gen_env.py          # chỉ lần đầu: sinh .env với secret ngẫu nhiên
+python3 scripts/gen_env.py          # 최초 1회: 무작위 시크릿으로 .env 생성
+# Agent backend: agent-backend/ 에 flopsoda/capstone_demo 저장소 (private → 접근 권한 있는 PC에서 git bundle로 복사)
+# .env 에 OLLAMA_API_KEY=... 추가 (https://ollama.com/settings/keys). 없으면 Agent가 오류 메시지로 답합니다.
 sudo docker compose up -d --build
-sudo docker compose ps              # chờ keycloak "healthy" (~1 phút)
+sudo docker compose ps              # keycloak이 "healthy"가 될 때까지 대기 (~1분)
 ```
 
-Mọi port chỉ mở trên `127.0.0.1` của server. Từ máy cá nhân, mở **SSH tunnel** rồi dùng trình duyệt như chạy local:
+모든 포트는 서버의 `127.0.0.1`에만 열려 있습니다. 개인 PC에서 **SSH 터널**을 연 뒤 로컬처럼 브라우저로 접속합니다.
 
 ```bash
 ssh -i <key.pem> -p <SSH_PORT> -N -L 3000:127.0.0.1:3000 -L 3001:127.0.0.1:3001 -L 8080:127.0.0.1:8080 ubuntu@<SERVER_IP>
 ```
 
-> Địa chỉ server, cổng SSH và file key được chia sẻ riêng trong nhóm — không ghi vào repo (repo public).
+> 서버 주소, SSH 포트, 키 파일은 팀 내부에서 따로 공유합니다 — 저장소(public)에 적지 않습니다.
 
 - Open WebUI: http://localhost:3000
-- **사용자 · 권한 관리: http://localhost:3001** (tài khoản có role `admin`)
-- Keycloak admin console: http://localhost:8080/admin (user `kcadmin`, mật khẩu `KEYCLOAK_ADMIN_PASSWORD` trong `.env`) — chỉ khi cần sửa cấu hình realm
+- **사용자 · 권한 관리: http://localhost:3001** (`admin` 역할 계정)
+- Keycloak 관리 콘솔: http://localhost:8080/admin (사용자 `kcadmin`, 비밀번호는 `.env`의 `KEYCLOAK_ADMIN_PASSWORD`) — realm 설정을 바꿀 때만 사용
 
-### Tài khoản demo
+### 데모 계정
 
-Mật khẩu chung: `grep DEMO_USER_PASSWORD ~/capstone-agent/.env`
+공통 비밀번호: `grep DEMO_USER_PASSWORD ~/capstone-agent/.env`
 
-| Đăng nhập | Role | Group | Clearance | Agent được dùng |
+| 로그인 | 역할 | 그룹 | 열람 등급 | 사용 가능한 Agent |
 |---|---|---|---|---|
-| `ceo` | user | executive | 4 (극비) | cả 4 |
+| `ceo` | user | executive | 4 (극비) | 4종 모두 |
 | `secretary` | user | secretary | 3 (대외비) | Super, 뉴스, 회의지원 |
-| `staff` | user | staff | 2 (사내) | cả 4 |
-| `sysadmin` | **admin** | developer | 1 (공개) | cả 4 + quản lý user |
+| `staff` | user | staff | 2 (사내) | 4종 모두 |
+| `sysadmin` | **admin** | developer | 1 (공개) | 4종 모두 + 사용자 관리 |
 
-### Phân quyền: hai trục độc lập
+### 권한 체계: 서로 독립된 두 축
 
-- **Role (Keycloak)** — ai quản lý hệ thống. `user`: đăng nhập. `admin`: quản lý user/group. **Role admin một mình không cho dùng agent hay xem dữ liệu.**
-- **Group (`config/permissions.yaml`)** — dùng agent nào, xem dữ liệu đến mức nào.
+- **역할 (Keycloak role)** — 시스템을 누가 관리하는가. `user`: 로그인 가능. `admin`: 사용자·그룹 관리. **`admin` 역할만으로는 Agent 사용이나 자료 열람 권한이 생기지 않습니다.**
+- **그룹 (`config/permissions.yaml`)** — 어떤 Agent를 쓰고, 어느 등급의 자료까지 볼 수 있는가.
 
-Mỗi người = 1 role + 1 hoặc nhiều group (nhiều group → lấy clearance cao nhất, gộp agent).
-Thành viên nhóm phát triển → group `developer`: thử được mọi agent nhưng chỉ thấy dữ liệu 공개.
-Người không có group nào nhận thông báo "소속 그룹이 없어 Agent를 사용할 수 없습니다…".
+한 사람 = 역할 1개 + 그룹 1개 이상 (그룹이 여러 개면 가장 높은 열람 등급, Agent는 합집합).
+개발팀 구성원 → `developer` 그룹: 모든 Agent를 테스트할 수 있지만 공개 자료만 볼 수 있습니다.
+그룹이 없는 사용자에게는 "소속 그룹이 없어 Agent를 사용할 수 없습니다…" 메시지가 표시됩니다.
 
-### Lần đầu: đồng bộ quyền sang Open WebUI
+### 최초 1회: Open WebUI로 권한 동기화
 
-Open WebUI chỉ hiện model cho user thường khi model đó đã được cấp quyền. Sau lần khởi động đầu tiên:
+Open WebUI는 권한이 부여된 모델만 일반 사용자에게 보여 줍니다. 처음 실행한 뒤:
 
-1. Đăng nhập Open WebUI bằng `sysadmin` **trước tiên** (người đăng nhập đầu tiên luôn thành admin của Open WebUI) → **Settings → Account → API Keys** → tạo key.
-2. Chạy:
+1. **가장 먼저** `sysadmin`으로 Open WebUI에 로그인합니다 (최초 로그인 사용자가 Open WebUI 관리자가 됨) → **설정 → 계정 → API 키**에서 키 생성.
+2. 다음 명령 실행:
    ```bash
    sudo docker compose exec -e OPENWEBUI_ADMIN_API_KEY=sk-... gateway python -m gateway.sync_openwebui
    ```
-3. Các user khác **đăng nhập lại** để Open WebUI gán group từ Keycloak.
+3. 다른 사용자는 **다시 로그인**해야 Open WebUI가 Keycloak 그룹을 반영합니다.
 
-## Giao diện
+## 화면 디자인
 
-Trang đăng nhập (Keycloak), trang 사용자 · 권한 관리 và Open WebUI dùng chung một bộ màu thương hiệu (gradient indigo → violet → fuchsia), font Pretendard, tự theo chế độ sáng/tối của hệ thống.
+로그인 페이지(Keycloak), 사용자 · 권한 관리 페이지, Open WebUI가 같은 브랜드 색상(indigo → violet → fuchsia 그라데이션)과 Pretendard 글꼴을 사용하며, 시스템의 라이트/다크 모드를 따릅니다.
 
-**Đổi màu thương hiệu:** sửa biến gradient/brand ở đầu 3 file — `capstone.css` (`--cap-gradient`, `--cap-brand`…), `admin-portal/style.css` (`--gradient`, `--brand`…), `infra/open-webui/custom.css` (`--cap-gradient`…). Màu theo mức dữ liệu (공개 xanh lá · 사내 xanh dương · 대외비 cam · 극비 đỏ) dùng cho cả badge và group.
+**브랜드 색상 변경:** 다음 3개 파일 맨 위의 그라데이션/브랜드 변수를 수정합니다 — `capstone.css` (`--cap-gradient`, `--cap-brand`…), `admin-portal/style.css` (`--gradient`, `--brand`…), `infra/open-webui/custom.css` (`--cap-gradient`…). 열람 등급 색상(공개 초록 · 사내 파랑 · 대외비 주황 · 극비 빨강)은 배지와 그룹 표시에 함께 쓰입니다.
 
-| File | Tác dụng |
+| 파일 | 역할 |
 |---|---|
-| `infra/keycloak/themes/capstone/login/resources/css/capstone.css` | Theme đăng nhập `capstone` (kế thừa `keycloak.v2`). Sửa xong chỉ cần tải lại trang (dev mode không cache theme) |
-| `infra/open-webui/custom.css` | Font + cỡ chữ của Open WebUI (mặc định to hơn 10%). Sửa xong: `sudo docker compose restart open-webui` |
+| `infra/keycloak/themes/capstone/login/resources/css/capstone.css` | 로그인 테마 `capstone` (`keycloak.v2` 상속). 수정 후 페이지 새로고침만 하면 됨 (dev 모드는 테마 캐시 없음) |
+| `infra/open-webui/custom.css` | Open WebUI의 글꼴·글자 크기(기본 10% 확대)·색상·테두리. 수정 후 `sudo docker compose restart open-webui` |
 
-- `OAUTH_AUTO_REDIRECT=true`: bỏ màn hình đăng nhập riêng của Open WebUI, người dùng vào thẳng trang đăng nhập chung.
-- Mỗi người vẫn tự chỉnh cỡ chữ được ở **설정 → 인터페이스 → UI Scale** (nhân thêm trên mức mặc định).
-- Tên và logo "Open WebUI" được giữ nguyên theo giấy phép của Open WebUI (chỉ được bỏ khi ≤ 50 người dùng/30 ngày hoặc có license enterprise).
-- Font tải từ CDN jsDelivr; nếu mạng nội bộ chặn CDN, giao diện tự dùng font hệ thống.
+- `OAUTH_AUTO_REDIRECT=true`: Open WebUI 자체 로그인 화면을 건너뛰고 공통 로그인 페이지로 바로 이동합니다.
+- 각 사용자는 **설정 → 인터페이스 → UI Scale**에서 글자 크기를 추가로 조절할 수 있습니다 (기본값에 곱해짐).
+- "Open WebUI" 이름과 로고는 Open WebUI 라이선스에 따라 유지합니다 (30일 기준 사용자 50명 이하이거나 엔터프라이즈 라이선스가 있어야 제거 가능).
+- 글꼴은 jsDelivr CDN에서 불러오며, 사내망에서 CDN이 막히면 시스템 글꼴로 표시됩니다.
 
-## Thay đổi phân quyền
+## Agent backend 업데이트
 
-1. Sửa `config/permissions.yaml` (group, clearance, agent).
-2. Group mới → tạo group cùng tên trong Keycloak và thêm user vào.
-3. `sudo docker compose restart gateway` rồi chạy lại bước sync ở trên.
+```bash
+# 저장소 접근 권한이 있는 PC에서
+git -C capstone_demo pull && git -C capstone_demo bundle create capstone_demo.bundle --all
+scp -P <SSH_PORT> capstone_demo.bundle ubuntu@<SERVER_IP>:/tmp/
+# 서버에서
+cd ~/capstone-agent/agent-backend && git pull /tmp/capstone_demo.bundle main
+cd .. && sudo docker compose up -d --build agents-k agents-group
+```
 
-## Quản lý user
+LLM 모델 변경: `.env`의 `OLLAMA_MODEL` (기본 `deepseek-v4.1-flash`) 수정 후 `docker compose up -d agents-k agents-group`.
 
-**Trang 사용자 · 권한 관리: http://localhost:3001** (`admin-portal/`) — đăng nhập bằng tài khoản có role `admin` (ví dụ `sysadmin`).
+## 권한 체계 변경
 
-| Việc | Trên trang |
+1. `config/permissions.yaml` 수정 (그룹, 열람 등급, Agent).
+2. 새 그룹 → Keycloak에 같은 이름의 그룹을 만들고 사용자를 추가.
+3. `sudo docker compose restart gateway` 후 위의 동기화 단계를 다시 실행.
+
+## 사용자 관리
+
+**사용자 · 권한 관리 페이지: http://localhost:3001** (`admin-portal/`) — `admin` 역할 계정(예: `sysadmin`)으로 로그인합니다.
+
+| 작업 | 페이지에서 |
 |---|---|
-| Xem user, quyền, mức dữ liệu | Bảng **사용자** |
-| Đổi quyền | **권한 변경** → chọn group (mô tả agent + mức dữ liệu của từng group), bật/tắt *시스템 관리자*, *계정 활성화* (tắt = đăng xuất ngay) |
-| Thêm user | **+ 사용자 추가** → tạo mật khẩu tạm (hiện 1 lần), user phải đổi ở lần đăng nhập đầu |
-| Xem hệ thống phân quyền | Bảng **권한 체계** (đọc từ `config/permissions.yaml`) |
+| 사용자·권한·열람 등급 확인 | **사용자** 표 |
+| 권한 변경 | **권한 변경** → 그룹 선택 (그룹별 Agent와 열람 등급 설명 표시), *시스템 관리자*, *계정 활성화* 켜기/끄기 (끄면 즉시 로그아웃) |
+| 사용자 추가 | **+ 사용자 추가** → 임시 비밀번호 생성 (한 번만 표시), 첫 로그인 때 변경 필수 |
+| 권한 체계 확인 | **권한 체계** 표 (`config/permissions.yaml`을 읽어 표시) |
 
-- Trang gọi thẳng Keycloak Admin API bằng token của chính admin đang đăng nhập → Keycloak tự kiểm quyền, và lịch sử ghi đúng người sửa. User không có role `admin` chỉ thấy thông báo "시스템 관리자만 사용할 수 있습니다".
-- Không tự đổi quyền admin / khoá chính mình được (tránh tự khoá).
-- Cấp group có mức 극비 phải xác nhận thêm một lần.
-- Gateway áp dụng quyền mới ngay (tối đa 60 giây); danh sách agent trong Open WebUI cập nhật khi user đăng nhập lại.
-- Xoá hẳn user / reset mật khẩu: dùng Keycloak console http://localhost:8080/admin/capstone/console/ (đăng nhập bằng `sysadmin`).
+- 페이지는 로그인한 관리자 본인의 토큰으로 Keycloak Admin API를 직접 호출합니다 → Keycloak이 권한을 직접 검사하고, 변경 이력에 실제 수정자가 남습니다. `admin` 역할이 없는 사용자에게는 "시스템 관리자만 사용할 수 있습니다" 안내만 표시됩니다.
+- 자기 자신의 관리자 권한 해제·계정 비활성화는 할 수 없습니다 (스스로 잠기는 것 방지).
+- 극비 등급 그룹을 부여할 때는 한 번 더 확인합니다.
+- Gateway는 변경된 권한을 바로(최대 60초) 적용하며, Open WebUI의 Agent 목록은 사용자가 다시 로그인하면 갱신됩니다.
+- 사용자 완전 삭제 / 비밀번호 초기화: Keycloak 콘솔 http://localhost:8080/admin/capstone/console/ (`sysadmin`으로 로그인).
 
-- Mọi thay đổi user/group được ghi lại (**Events → Admin events**), đăng nhập ghi ở **Events → User events** (lưu 90 ngày).
-- **Không** đổi role/group trong trang Admin của Open WebUI — mỗi lần đăng nhập, Open WebUI ghi đè lại theo Keycloak.
-- `kcadmin` (realm `master`) là super admin của cả Keycloak — chỉ dùng khi cần sửa cấu hình realm.
+- 모든 사용자/그룹 변경은 기록됩니다 (**Events → Admin events**), 로그인 기록은 **Events → User events** (90일 보관).
+- Open WebUI 관리자 화면에서 역할/그룹을 **바꾸지 마세요** — 로그인할 때마다 Keycloak 기준으로 덮어씁니다.
+- `kcadmin` (`master` realm)은 Keycloak 전체의 슈퍼 관리자입니다 — realm 설정을 바꿀 때만 사용합니다.
 
-> `capstone-realm.json` chỉ được import khi realm **chưa tồn tại**. Sửa file này sau lần chạy đầu sẽ không có tác dụng — sửa trong admin console, hoặc xoá volume để import lại.
+> `capstone-realm.json`은 realm이 **아직 없을 때만** import됩니다. 최초 실행 이후 이 파일을 수정해도 반영되지 않으므로 관리 콘솔에서 수정하거나, 볼륨을 지우고 다시 import해야 합니다.
 
-## Hợp đồng cho các thành viên
+## 팀원별 연동 규약
 
-**Agent** — cài đặt interface trong `agents/base.py`, đăng ký trong `agents/registry.py`:
-- Gọi `require_access(ctx, self.id)` đầu tiên trong `run()`.
-- Truyền `ctx` cho mọi tool. Quyền kiểm tra **bằng code**, không bằng prompt.
-- Trả về `AgentEvent.text` (câu trả lời), `.status` (tiến trình — hiện trong khối "thinking"), `.citation` (id tài liệu đã dùng — vào audit log).
-- Agent con phải tự đứng được (được gọi trực tiếp, không qua Super Agent).
+**Agent** — `agents/base.py`의 인터페이스를 구현하고 `agents/registry.py`에 등록합니다.
+- `run()`의 첫 줄에서 `require_access(ctx, self.id)`를 호출합니다.
+- 모든 도구에 `ctx`를 전달합니다. 권한은 프롬프트가 아니라 **코드로** 검사합니다.
+- `AgentEvent.text`(답변), `.status`(진행 상황 — "생각" 블록에 표시), `.citation`(사용한 문서 id — 감사 로그에 기록)을 반환합니다.
+- 하위 Agent는 단독으로 동작해야 합니다 (Super Agent를 거치지 않고 직접 호출될 수 있음).
 
-**RAG / ontology** — mỗi chunk / node có metadata theo `shared/access.py`
-(`classification` 1–4, `allowed_groups`, `meeting_id`, `source`) và áp `retrieval_filter(ctx)` **bên trong** câu truy vấn, trước similarity search.
+**RAG / 온톨로지** — 모든 chunk / node에 `shared/access.py`에 정의된 메타데이터
+(`classification` 1–4, `allowed_groups`, `meeting_id`, `source`)를 붙이고, 유사도 검색 **이전에** 쿼리 **안에서** `retrieval_filter(ctx)`를 적용합니다.
 
-## Ghi chú bảo mật
+## 보안 참고 사항
 
-- Gateway chỉ tin JWT ký bởi Open WebUI (`X-OpenWebUI-User-Jwt`), không tin header thường `X-OpenWebUI-User-*`.
-- Open WebUI chỉ cho đăng nhập qua SSO. **Không bật** `ENABLE_LOGIN_FORM` / `ENABLE_SIGNUP`: tài khoản local trùng email lãnh đạo sẽ được gateway coi là lãnh đạo.
-- Audit log ghi trước khi agent chạy; ghi thất bại → từ chối yêu cầu.
-- Admin Open WebUI không đọc được chat của người khác (`ENABLE_ADMIN_CHAT_ACCESS=false`).
-- `start-dev` + HTTP chỉ dùng cho phát triển qua SSH tunnel. Mở ra Internet cần HTTPS + `kc.sh start`.
+- Gateway는 Open WebUI가 서명한 JWT(`X-OpenWebUI-User-Jwt`)만 신뢰하며, 일반 `X-OpenWebUI-User-*` 헤더는 신뢰하지 않습니다.
+- Open WebUI는 SSO 로그인만 허용합니다. `ENABLE_LOGIN_FORM` / `ENABLE_SIGNUP`을 **켜지 마세요**: 임원과 같은 이메일의 로컬 계정이 생기면 Gateway가 그 계정을 임원으로 간주합니다.
+- 감사 로그는 Agent 실행 전에 기록하며, 기록에 실패하면 요청을 거부합니다.
+- Open WebUI 관리자는 다른 사람의 채팅을 볼 수 없습니다 (`ENABLE_ADMIN_CHAT_ACCESS=false`).
+- `start-dev` + HTTP는 SSH 터널을 통한 개발용입니다. 인터넷에 공개하려면 HTTPS + `kc.sh start`가 필요합니다.
 
-## Test
+## 테스트
 
 ```bash
 python -m venv .venv && .venv/Scripts/pip install -r requirements-dev.txt   # Windows
 .venv/Scripts/python -m pytest -q
 ```
 
-## Việc tiếp theo (Auth)
+## 다음 작업 (Auth)
 
-- [ ] Mở port public + tên miền + HTTPS (reverse proxy) để nhóm/mentor truy cập không cần tunnel
-- [ ] Đăng nhập dashboard qua Keycloak; gateway xác minh access token Keycloak (JWKS)
-- [ ] `meeting_ids` trong `UserContext` từ dữ liệu thành viên cuộc họp
-- [ ] Liên kết tài khoản Telegram
-- [ ] Test prompt injection / vượt quyền với agent thật
+- [ ] 도메인 + HTTPS(리버스 프록시/Cloudflare Tunnel)로 터널 없이 팀원·멘토 접속
+- [ ] 대시보드 Keycloak 로그인, Gateway에서 Keycloak access token 검증 (JWKS)
+- [ ] 회의 참석자 데이터로 `UserContext`의 `meeting_ids` 채우기
+- [ ] 텔레그램 계정 연동
+- [ ] 실제 Agent 대상 프롬프트 인젝션 / 권한 우회 테스트

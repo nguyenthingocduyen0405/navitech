@@ -1,2 +1,2 @@
-# Shell scripts and configs must keep LF line endings or they break inside Linux containers.
+# 셸 스크립트와 설정 파일은 LF 줄바꿈을 유지해야 리눅스 컨테이너에서 정상 동작합니다.
 * text=auto eol=lf

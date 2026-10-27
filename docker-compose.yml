@@ -1,7 +1,25 @@
 name: capstone
 
-# All ports bind to 127.0.0.1 on the server. Reach them through an SSH tunnel
-# (see README) until HTTPS + public ports are set up.
+# 모든 포트는 서버의 127.0.0.1에만 바인딩됩니다. HTTPS와 공개 포트를 설정하기 전까지는
+# SSH 터널로 접속하세요 (README 참고).
+
+# Agent backend (agent-backend/ = flopsoda/capstone_demo): 한 이미지로 두 Agent System을 띄웁니다.
+# 외부 포트는 열지 않습니다 — gateway만 Group system을 호출하고, Group은 K전자에 A2A(HTTP)로 요청합니다.
+x-agent-backend: &agent-backend
+  build:
+    context: ./agent-backend/backend
+    dockerfile: ../../infra/agent-backend/Dockerfile
+  restart: unless-stopped
+  mem_limit: 768m
+
+# agent-backend/backend/app/runtime/llm.py: LLM_PROVIDER=ollama(기본, Ollama Cloud) | openai(OpenAI 호환 API, 예: Groq gpt-oss, claude-bridge)
+x-llm-env: &llm-env
+  LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
+  OLLAMA_API_KEY: ${OLLAMA_API_KEY:-}
+  OLLAMA_MODEL: ${OLLAMA_MODEL:-deepseek-v4.1-flash}
+  OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+  OPENAI_MODEL: ${OPENAI_MODEL:-}
+  OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
 
 services:
   postgres:
@@ -13,6 +31,9 @@ services:
       KEYCLOAK_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
       OPENWEBUI_DB_PASSWORD: ${OPENWEBUI_DB_PASSWORD}
       APP_DB_PASSWORD: ${APP_DB_PASSWORD}
+      SPEECH_DB_PASSWORD: ${SPEECH_DB_PASSWORD}
+      AGENTS_K_DB_PASSWORD: ${AGENTS_K_DB_PASSWORD}
+      AGENTS_GROUP_DB_PASSWORD: ${AGENTS_GROUP_DB_PASSWORD}
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./infra/postgres/init.sh:/docker-entrypoint-initdb.d/10-init.sh:ro
@@ -34,13 +55,14 @@ services:
       KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
       KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USER}
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
-      # Browser uses the public URL; containers (Open WebUI, gateway) use http://keycloak:8080.
+      # 브라우저는 공개 URL을, 컨테이너(Open WebUI, gateway)는 http://keycloak:8080 을 사용합니다.
       KC_HOSTNAME: ${KEYCLOAK_PUBLIC_URL}
       KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+      KC_PROXY_HEADERS: xforwarded
       KC_HTTP_ENABLED: "true"
       KC_HEALTH_ENABLED: "true"
       JAVA_OPTS_KC_HEAP: "-Xms64m -Xmx512m"
-      # Placeholders used by infra/keycloak/capstone-realm.json
+      # infra/keycloak/import/capstone-realm.json 의 자리표시자(${...})에 들어갈 값
       OPENWEBUI_PUBLIC_URL: ${OPENWEBUI_PUBLIC_URL}
       ADMIN_PORTAL_PUBLIC_URL: ${ADMIN_PORTAL_PUBLIC_URL}
       OPENWEBUI_OIDC_CLIENT_SECRET: ${OPENWEBUI_OIDC_CLIENT_SECRET}
@@ -66,10 +88,81 @@ services:
       retries: 30
       start_period: 30s
 
+  agents-k:
+    # K전자 Agent System: K Super → 미팅 / 뉴스 / 경영자문. Group의 A2A 요청을 /api/a2a/run에서 받음
+    <<: *agent-backend
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      <<: *llm-env
+      # 회의 저장소: DB agents의 schema kelec (role agents_k는 Group schema에 접근 불가). principal 없는 요청은 열람 불가(0)
+      MEETINGS_DATABASE_URL: postgresql://agents_k:${AGENTS_K_DB_PASSWORD}@postgres:5432/agents
+      MEETINGS_ANONYMOUS_CLEARANCE: "0"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  agents-group:
+    # Group Agent System: Group Super → 그룹 전문 Agent 위임 | K전자 A2A. Open WebUI의 4개 Agent가 여기로 연결됨
+    <<: *agent-backend
+    command: ["uvicorn", "app.systems.group.app:app", "--host", "0.0.0.0", "--port", "8001"]
+    environment:
+      <<: *llm-env
+      K_ELECTRONICS_A2A_URL: http://agents-k:8000/api/a2a/run
+      MEETINGS_DATABASE_URL: postgresql://agents_group:${AGENTS_GROUP_DB_PASSWORD}@postgres:5432/agents
+      MEETINGS_ANONYMOUS_CLEARANCE: "0"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      agents-k:
+        condition: service_started
+
+  claude-bridge:
+    # 테스트용 LLM: OpenAI 호환 API → Claude 구독 (infra/claude-bridge). 유료 API 키 불필요.
+    # 사용: .env에 CLAUDE_CODE_OAUTH_TOKEN(`claude setup-token`) + LLM_PROVIDER=openai, OPENAI_BASE_URL=http://claude-bridge:8080/v1
+    build: ./infra/claude-bridge
+    restart: unless-stopped
+    mem_limit: 1g
+    environment:
+      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
+      CLAUDE_MODEL: ${CLAUDE_MODEL:-sonnet}
+      CLAUDE_EFFORT: ${CLAUDE_EFFORT:-}
+      BRIDGE_API_KEY: ${CLAUDE_BRIDGE_API_KEY:-}
+      BRIDGE_MAX_CONCURRENCY: ${CLAUDE_BRIDGE_MAX_CONCURRENCY:-2}
+
+  speech-service:
+    # 화자 식별 STT: Open WebUI가 STT 엔진(openai 호환)으로 호출 → VAD + 등록된 voiceprint로 발언자 표시.
+    # 음성 등록 페이지 /voice/ (nginx → 127.0.0.1:8095, Keycloak 로그인). voiceprint는 Postgres DB `speech`
+    build: ./infra/speech-service
+    restart: unless-stopped
+    mem_limit: 1536m
+    environment:
+      SPEECH_API_KEY: ${SPEECH_API_KEY}
+      SPEECH_DATABASE_URL: postgresql://speech:${SPEECH_DB_PASSWORD}@postgres:5432/speech
+      STT_ENGINE: ${STT_ENGINE:-auto}          # auto: GROQ_API_KEY가 있으면 groq, 없으면 local(SenseVoice)
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GROQ_STT_MODEL: ${GROQ_STT_MODEL:-whisper-large-v3-turbo}
+      VOICE_MATCH_THRESHOLD: ${VOICE_MATCH_THRESHOLD:-0.5}
+      PUBLIC_BASE_URL: ${OPENWEBUI_PUBLIC_URL}/voice
+      OIDC_PUBLIC_ISSUER: ${KEYCLOAK_PUBLIC_URL}/realms/capstone
+      OIDC_INTERNAL_ISSUER: http://keycloak:8080/realms/capstone
+      OIDC_CLIENT_ID: voice-enroll
+      OIDC_CLIENT_SECRET: ${VOICE_OIDC_CLIENT_SECRET}
+      SESSION_SECRET: ${VOICE_SESSION_SECRET}
+      VOICEPRINT_KEY: ${VOICEPRINT_KEY}   # voiceprint 암호화 키 (개인정보의 안전성 확보조치 기준 제7조)
+    volumes:
+      - ./infra/speech-service/models:/models:ro   # infra/speech-service/download_models.sh
+    ports:
+      - "127.0.0.1:8095:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   gateway:
     build: .
     restart: unless-stopped
     environment:
+      # 실제 Agent: Group Agent System. 비우면 mock Agent (agents/registry.py)
+      AGENT_BACKEND_URL: http://agents-group:8001
       BACKEND_API_KEY: ${BACKEND_API_KEY}
       OWUI_FORWARD_JWT_SECRET: ${OWUI_FORWARD_JWT_SECRET}
       PERMISSIONS_FILE: /app/config/permissions.yaml
@@ -85,35 +178,38 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      agents-group:
+        condition: service_started
 
   open-webui:
     image: ghcr.io/open-webui/open-webui:v0.11.4
+    command: ["bash", "-c", "sed -i \"s/WEBUI_NAME += ' (Open WebUI)'/WEBUI_NAME += ''/\" /app/backend/open_webui/env.py || true; cp -f /branding/* /app/backend/open_webui/static/ 2>/dev/null || true; cp -f /branding/* /app/build/static/ 2>/dev/null || true; cp -f /branding/favicon.png /app/build/favicon.png 2>/dev/null || true; grep -rlE '모델(에서)? 검색' /app/build/_app | xargs -r sed -i -e 's/모델 검색/에이전트 검색/g' -e 's/모델에서 검색/에이전트에서 검색/g' || true; exec bash start.sh"]
     restart: unless-stopped
     environment:
       WEBUI_URL: ${OPENWEBUI_PUBLIC_URL}
-      WEBUI_NAME: Capstone AI Agent   # shown as "Capstone AI Agent (Open WebUI)"
+      WEBUI_NAME: Navitech
       WEBUI_SECRET_KEY: ${WEBUI_SECRET_KEY}
       DATABASE_URL: postgresql://openwebui:${OPENWEBUI_DB_PASSWORD}@postgres:5432/openwebui
-      # Env is the source of truth; admin-panel changes do not persist across restarts.
+      # 환경 변수가 기준입니다. 관리자 화면에서 바꾼 설정은 재시작하면 사라집니다.
       ENABLE_PERSISTENT_CONFIG: "false"
 
-      # --- Agents: the gateway is the only model provider ---
+      # --- Agent: gateway가 유일한 모델 제공자 ---
       ENABLE_OLLAMA_API: "false"
       ENABLE_OPENAI_API: "true"
       OPENAI_API_BASE_URL: http://gateway:8000/v1
       OPENAI_API_KEY: ${BACKEND_API_KEY}
       ENABLE_DIRECT_CONNECTIONS: "false"
       ENABLE_EVALUATION_ARENA_MODELS: "false"
-      # Admins see only the agents their groups allow — same rule the gateway enforces
+      # 관리자도 소속 그룹이 허용한 Agent만 보입니다 — gateway의 검사 규칙과 동일
       BYPASS_ADMIN_ACCESS_CONTROL: "false"
-      # Signed JWT (X-OpenWebUI-User-Jwt) instead of forgeable plain headers
+      # 위조 가능한 일반 헤더 대신 서명된 JWT(X-OpenWebUI-User-Jwt)로 사용자 정보 전달
       ENABLE_FORWARD_USER_INFO_HEADERS: "true"
       FORWARD_USER_INFO_HEADER_JWT_SECRET: ${OWUI_FORWARD_JWT_SECRET}
 
-      # --- SSO only (Keycloak) ---
+      # --- SSO 로그인만 허용 (Keycloak) ---
       ENABLE_LOGIN_FORM: "false"
       ENABLE_PASSWORD_AUTH: "false"
-      OAUTH_AUTO_REDIRECT: "true"            # skip Open WebUI's own sign-in page, go straight to Keycloak
+      OAUTH_AUTO_REDIRECT: "true"            # Open WebUI 자체 로그인 화면 없이 Keycloak으로 바로 이동
       ENABLE_SIGNUP: "false"
       ENABLE_OAUTH_SIGNUP: "true"
       OAUTH_MERGE_ACCOUNTS_BY_EMAIL: "false"
@@ -127,31 +223,38 @@ services:
       OAUTH_ALLOWED_ROLES: user,admin
       OAUTH_ADMIN_ROLES: admin
       ENABLE_OAUTH_GROUP_MANAGEMENT: "true"
-      ENABLE_OAUTH_GROUP_CREATION: "false"   # groups come from permissions.yaml via sync_openwebui
+      ENABLE_OAUTH_GROUP_CREATION: "false"   # 그룹은 sync_openwebui가 permissions.yaml 기준으로 생성
       OAUTH_GROUPS_CLAIM: groups
-      ENABLE_API_KEYS: "true"                # admin key for gateway.sync_openwebui
+      ENABLE_API_KEYS: "true"                # gateway.sync_openwebui 실행용 관리자 키
 
-      # --- Data protection ---
+      # --- 데이터 보호 ---
       ENABLE_ADMIN_CHAT_ACCESS: "false"
       ENABLE_ADMIN_EXPORT: "false"
       ENABLE_COMMUNITY_SHARING: "false"
       ENABLE_CODE_INTERPRETER: "false"
       ENABLE_VERSION_UPDATE_CHECK: "false"
 
-      # --- Background tasks would otherwise call our agents with Open WebUI's own prompts ---
+      # --- 켜 두면 Open WebUI가 자체 프롬프트로 우리 Agent를 호출하므로 끔 (제목·태그 생성 등) ---
       ENABLE_TITLE_GENERATION: "false"
       ENABLE_TAGS_GENERATION: "false"
       ENABLE_FOLLOW_UP_GENERATION: "false"
       ENABLE_SEARCH_QUERY_GENERATION: "false"
       ENABLE_RETRIEVAL_QUERY_GENERATION: "false"
 
-      # --- RAG lives in our backend: don't load Open WebUI's local embedding model (saves RAM) ---
+      # --- RAG는 우리 백엔드에서 처리: Open WebUI의 로컬 임베딩 모델을 로드하지 않음 (메모리 절약) ---
       RAG_EMBEDDING_ENGINE: openai
       BYPASS_EMBEDDING_AND_RETRIEVAL: "true"
+
+      # --- 음성 → 텍스트: speech-service(화자 식별). 녹음 파일 업로드와 채팅창 마이크가 모두 이 경로 ---
+      AUDIO_STT_ENGINE: openai
+      AUDIO_STT_OPENAI_API_BASE_URL: http://speech-service:8000/v1
+      AUDIO_STT_OPENAI_API_KEY: ${SPEECH_API_KEY}
+      AUDIO_STT_MODEL: navitech-speaker-stt
     volumes:
       - owui-data:/app/backend/data
-      # Copied to /static/custom.css at startup; font + text size, see infra/open-webui/custom.css
+      # 시작 시 /static/custom.css로 복사됨: 글꼴·글자 크기·색상 (infra/open-webui/custom.css 참고)
       - ./infra/open-webui/custom.css:/app/build/static/custom.css:ro
+      - ./infra/open-webui/branding:/branding:ro
     ports:
       - "127.0.0.1:3000:8080"
     depends_on:
@@ -163,7 +266,7 @@ services:
         condition: service_started
 
   admin-portal:
-    # 사용자 · 권한 관리 page. Static files only; it calls the Keycloak Admin API with the admin's own token.
+    # 사용자 · 권한 관리 페이지. 정적 파일만 제공하며, 로그인한 관리자 본인의 토큰으로 Keycloak Admin API를 호출합니다.
     image: nginx:1.29-alpine
     restart: unless-stopped
     environment:

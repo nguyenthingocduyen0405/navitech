@@ -21,10 +21,10 @@
   "adminEventsDetailsEnabled": true,
   "roles": {
     "realm": [
-      { "name": "user", "description": "May sign in to the capstone apps" },
+      { "name": "user", "description": "Capstone 서비스 로그인 가능" },
       {
         "name": "admin",
-        "description": "System administrator: manages users and groups of this realm, not business data",
+        "description": "시스템 관리자: 이 realm의 사용자·그룹 관리 (업무 자료 열람 권한 없음)",
         "composite": true,
         "composites": {
           "client": { "realm-management": ["manage-users", "view-users", "query-users", "query-groups"] }
@@ -99,7 +99,7 @@
     },
     {
       "clientId": "admin-portal",
-      "name": "Capstone admin portal (users & permissions)",
+      "name": "사용자 · 권한 관리 페이지",
       "enabled": true,
       "protocol": "openid-connect",
       "publicClient": true,
@@ -115,7 +115,7 @@
     },
     {
       "clientId": "gateway",
-      "name": "Agent Gateway (service account: reads users and groups)",
+      "name": "Agent Gateway (서비스 계정: 사용자·그룹 조회)",
       "enabled": true,
       "protocol": "openid-connect",
       "publicClient": false,

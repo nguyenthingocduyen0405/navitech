@@ -1,18 +1,18 @@
-/* Capstone login theme — shares the brand tokens of admin-portal/style.css and infra/open-webui/custom.css:
-   indigo → violet gradient, Pretendard, rounded card on a soft glowing background, follows system dark mode. */
+/* Capstone 로그인 테마 — admin-portal/style.css, infra/open-webui/custom.css와 브랜드 토큰을 공유합니다:
+   indigo → violet 그라데이션, Pretendard 글꼴, 은은한 배경 위의 둥근 카드, 시스템 다크 모드 연동. */
 @import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css");
 
 :root {
   --cap-font: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui,
     "Apple SD Gothic Neo", "Malgun Gothic", "Segoe UI", sans-serif;
-  /* brand — change these to re-colour every screen */
+  /* 브랜드 색상 — 이 값을 바꾸면 모든 화면 색이 바뀝니다 */
   --cap-gradient: linear-gradient(135deg, #4f46e5 0%, #7c3aed 60%, #c026d3 100%);
   --cap-brand: #4f46e5;
   --cap-ring: rgba(99, 102, 241, 0.45);
   --cap-glow-1: rgba(99, 102, 241, 0.32);
   --cap-glow-2: rgba(217, 70, 239, 0.22);
   --cap-glow-3: rgba(124, 58, 237, 0.26);
-  /* surfaces */
+  /* 배경·면 색상 */
   --cap-page: #f5f5fa;
   --cap-card: #ffffff;
   --cap-card-border: rgba(255, 255, 255, 0.7);
@@ -40,14 +40,14 @@ html.pf-v5-theme-dark {
   --cap-error: #f87171;
 }
 
-/* ---- page ---- */
+/* ---- 페이지 ---- */
 html.login-pf,
 body#keycloak-bg {
   background: var(--cap-page) !important;
   background-image: none !important;
 }
 
-/* everything except Font Awesome icons */
+/* Font Awesome 아이콘을 제외한 모든 요소 */
 .pf-v5-c-login,
 .pf-v5-c-login *:not(i):not(.fa):not(.fas):not(.far):not([class*="fa-"]) {
   font-family: var(--cap-font) !important;
@@ -66,7 +66,7 @@ body#keycloak-bg {
     var(--cap-page) !important;
 }
 
-/* the whole form sits on one floating card */
+/* 폼 전체를 떠 있는 카드 하나에 배치 */
 .pf-v5-c-login__container {
   display: block !important;
   width: 100%;
@@ -79,7 +79,7 @@ body#keycloak-bg {
   box-shadow: var(--cap-card-shadow);
 }
 
-/* ---- brand ---- */
+/* ---- 브랜드 ---- */
 .pf-v5-c-login__header {
   padding: 0 !important;
   margin: 0 0 8px !important;
@@ -122,7 +122,7 @@ body#keycloak-bg {
   letter-spacing: -0.01em;
 }
 
-/* ---- card body ---- */
+/* ---- 카드 본문 ---- */
 .pf-v5-c-login__main {
   background: transparent !important;
   border: 0 !important;
@@ -166,7 +166,7 @@ body#keycloak-bg {
   margin-bottom: 20px !important;
 }
 
-/* ---- form ---- */
+/* ---- 폼 ---- */
 .pf-v5-c-form {
   gap: 18px !important;
 }
@@ -229,7 +229,7 @@ body#keycloak-bg {
   accent-color: var(--cap-brand);
 }
 
-/* language picker */
+/* 언어 선택 */
 .pf-v5-c-login__main-header-utilities .pf-v5-c-form-control {
   background: transparent !important;
   border-radius: 9999px !important;
@@ -242,7 +242,7 @@ body#keycloak-bg {
   background: transparent !important;
 }
 
-/* ---- buttons ---- */
+/* ---- 버튼 ---- */
 .pf-v5-c-form__actions {
   padding-top: 8px !important;
 }
@@ -277,7 +277,7 @@ body#keycloak-bg {
   text-decoration: none;
 }
 
-/* ---- messages ---- */
+/* ---- 안내 메시지 ---- */
 .pf-v5-c-alert {
   border: 0 !important;
   border-radius: 14px !important;

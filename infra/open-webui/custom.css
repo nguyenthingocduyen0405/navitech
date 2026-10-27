@@ -1,12 +1,12 @@
-/* Capstone overrides for Open WebUI — loaded by Open WebUI from /static/custom.css.
-   Same font and brand colours as the login theme (infra/keycloak/themes/capstone) and admin-portal. */
+/* Open WebUI용 Capstone 스타일 — Open WebUI가 /static/custom.css로 불러옵니다.
+   로그인 테마(infra/keycloak/themes/capstone), admin-portal과 같은 글꼴·브랜드 색상을 사용합니다. */
 @import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css");
 
 :root {
   --cap-font: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui,
     "Apple SD Gothic Neo", "Malgun Gothic", "Segoe UI", sans-serif;
   --cap-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  /* brand */
+  /* 브랜드 색상 */
   --cap-gradient: linear-gradient(135deg, #4f46e5 0%, #7c3aed 60%, #c026d3 100%);
   --cap-brand: #4f46e5;
   --cap-soft: #eef0ff;
@@ -20,9 +20,9 @@
   --cap-soft-text: #e0e7ff;
 }
 
-/* ---- brand colour accents ---- */
+/* ---- 브랜드 색상 포인트 ---- */
 
-/* send / voice buttons in the message box */
+/* 메시지 입력창의 전송 / 음성 버튼 */
 #send-message-button,
 form button.bg-black.rounded-full,
 form button.dark\:bg-white.rounded-full {
@@ -31,7 +31,7 @@ form button.dark\:bg-white.rounded-full {
   box-shadow: 0 6px 16px -6px rgba(124, 58, 237, 0.7);
 }
 
-/* the user's own messages */
+/* 사용자 본인의 메시지 */
 .chat-user .rounded-3xl {
   background: var(--cap-gradient) !important;
   color: #ffffff !important;
@@ -42,13 +42,13 @@ form button.dark\:bg-white.rounded-full {
   color: inherit !important;
 }
 
-/* current chat in the sidebar */
+/* 사이드바에서 현재 열린 채팅 */
 #sidebar-chat-item.selected {
   background: var(--cap-soft) !important;
   color: var(--cap-soft-text) !important;
 }
 
-/* agent name above each answer */
+/* 각 답변 위의 Agent 이름 */
 #response-message-model-name {
   background: var(--cap-gradient);
   -webkit-background-clip: text;
@@ -65,7 +65,7 @@ form button.dark\:bg-white.rounded-full {
   background: rgba(124, 58, 237, 0.22);
 }
 
-/* ---- surfaces: tinted page, white panels with borders ---- */
+/* ---- 배경: 색을 입힌 페이지 + 테두리가 있는 흰색 패널 ---- */
 :root {
   --cap-page: #e1e4f0;
   --cap-main: #f4f5fb;
@@ -86,13 +86,13 @@ form button.dark\:bg-white.rounded-full {
   --cap-label: #a0a0b4;
 }
 
-/* page behind everything */
+/* 가장 뒤의 페이지 배경 */
 .app > .h-screen {
   background: var(--cap-page) !important;
 }
 
-/* main chat area (top bar + messages + message box) = a framed window:
-   border, rounded corners, own background with a soft brand glow */
+/* 메인 채팅 영역(상단 바 + 메시지 + 입력창) = 테두리가 있는 창:
+   테두리, 둥근 모서리, 은은한 브랜드 빛이 들어간 자체 배경 */
 #chat-container div:has(> nav.sticky.top-0) {
   margin: 10px;
   height: calc(100% - 20px) !important;
@@ -106,7 +106,7 @@ form button.dark\:bg-white.rounded-full {
   box-shadow: 0 20px 50px -30px rgba(49, 46, 129, 0.45);
 }
 
-/* top bar of the chat: solid, with a bottom border (instead of the fade-out gradient) */
+/* 채팅 상단 바: 흐려지는 그라데이션 대신 단색 배경 + 아래 테두리 */
 #navbar-bg-gradient-to-b {
   display: none !important;
 }
@@ -117,14 +117,14 @@ nav.sticky.top-0 {
   border-bottom: 1px solid var(--cap-line);
 }
 
-/* sidebar = white panel with a border */
+/* 사이드바 = 테두리가 있는 흰색 패널 */
 #sidebar {
   background: var(--cap-panel) !important;
   border-right: 1px solid var(--cap-line);
   box-shadow: 6px 0 24px -18px rgba(49, 46, 129, 0.35);
 }
 
-/* sidebar menu: real buttons */
+/* 사이드바 메뉴: 버튼 모양으로 */
 #sidebar :is(#sidebar-new-chat-button, #sidebar-search-button, #sidebar-notes-button, #sidebar-workspace-button) {
   margin: 3px 0;
   border: 1px solid var(--cap-line);
@@ -154,7 +154,7 @@ nav.sticky.top-0 {
   filter: brightness(1.08);
 }
 
-/* section titles (폴더, 채팅, 오늘…) and their small actions */
+/* 섹션 제목(폴더, 채팅, 오늘…)과 작은 동작 버튼 */
 #sidebar button.text-xs,
 #sidebar .text-xs.text-gray-500,
 #sidebar button.text-gray-300 {
@@ -162,7 +162,7 @@ nav.sticky.top-0 {
   font-weight: 700;
 }
 
-/* chat list */
+/* 채팅 목록 */
 #sidebar-chat-item {
   border: 1px solid transparent;
 }
@@ -179,9 +179,9 @@ nav.sticky.top-0 {
   font-weight: 600;
 }
 
-/* ---- buttons: border + background so they read as buttons ---- */
+/* ---- 버튼: 버튼으로 잘 보이도록 테두리 + 배경 ---- */
 
-/* every rounded button in the chat window (except the gradient send / voice button) */
+/* 채팅 창 안의 모든 둥근 버튼 (그라데이션 전송 / 음성 버튼 제외) */
 #chat-pane button:is(.rounded-lg, .rounded-xl, .rounded-2xl, .rounded-full):not(#send-message-button):not(.bg-black) {
   border: 1px solid var(--cap-line);
   background-color: var(--cap-control);
@@ -194,7 +194,7 @@ nav.sticky.top-0 {
   color: var(--cap-soft-text);
 }
 
-/* small icon buttons in the sidebar (collapse, new folder, more…) and the user menu */
+/* 사이드바의 작은 아이콘 버튼 (접기, 새 폴더, 더보기…)과 사용자 메뉴 */
 #sidebar button.rounded-lg,
 #sidebar button.text-gray-300 {
   border: 1px solid var(--cap-line);
@@ -211,7 +211,7 @@ nav.sticky button.size-6 {
   color: var(--cap-control-text) !important;
 }
 
-/* actions under each message (edit, copy, read aloud, 👍 👎, regenerate…) */
+/* 각 메시지 아래 동작 버튼 (편집, 복사, 읽어주기, 👍 👎, 재생성…) */
 #messages-container button.rounded-lg.p-1\.5 {
   margin-right: 4px;
   border: 1px solid var(--cap-line);
@@ -227,7 +227,7 @@ nav.sticky button.size-6:hover,
   color: var(--cap-soft-text) !important;
 }
 
-/* "thinking" toggle above the answer */
+/* 답변 위의 "생각" 펼치기 버튼 */
 #messages-container button.text-start.text-gray-500 {
   padding: 2px 12px !important;
   border: 1px solid var(--cap-line);
@@ -237,7 +237,7 @@ nav.sticky button.size-6:hover,
   font-size: 0.875rem !important;
 }
 
-/* message box: solid panel on the tinted page */
+/* 메시지 입력창: 색이 있는 페이지 위의 흰색 패널 */
 #message-input-container {
   background: var(--cap-panel) !important;
   border: 1px solid var(--cap-line) !important;
@@ -248,7 +248,7 @@ nav.sticky button.size-6:hover,
   border-color: color-mix(in srgb, var(--cap-brand) 45%, transparent) !important;
 }
 
-/* message box: + / microphone / agent picker */
+/* 메시지 입력창: + / 마이크 / Agent 선택 */
 #input-menu-button,
 #message-input-container button.rounded-full.p-1\.5 {
   border: 1px solid var(--cap-line);
@@ -265,13 +265,13 @@ nav.sticky button.size-6:hover,
   font-weight: 600;
 }
 
-/* Whole UI 10% larger by default. Open WebUI sizes are rem-based, so text and spacing scale together;
-   each user's own "UI Scale" slider (Settings > Interface) still multiplies on top of this. */
+/* 전체 UI를 기본 10% 확대. Open WebUI 크기는 rem 기준이라 글자와 간격이 함께 커집니다.
+   사용자별 "UI Scale" 슬라이더(설정 > 인터페이스)는 이 값 위에 추가로 곱해집니다. */
 html {
   font-size: calc(110% * var(--app-text-scale, 1)) !important;
 }
 
-/* Korean-friendly font everywhere (Inter, the default, has no Hangul). */
+/* 한글에 맞는 글꼴을 전체에 적용 (기본 글꼴 Inter에는 한글이 없음). */
 html,
 body,
 button,
@@ -289,7 +289,7 @@ kbd,
   font-family: var(--cap-mono) !important;
 }
 
-/* Chat reading comfort */
+/* 채팅 가독성 */
 .markdown-prose {
   font-size: 1rem !important;
   line-height: 1.75 !important;

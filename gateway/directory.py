@@ -1,9 +1,8 @@
-"""Look up a user's current groups in Keycloak.
+"""Keycloak에서 사용자의 현재 그룹을 조회합니다.
 
-The JWT forwarded by Open WebUI only carries identity (email, name, role), not
-groups, so the gateway asks Keycloak directly. Results are cached briefly, which
-also means revoking a group takes effect within `cache_ttl` seconds — without
-waiting for the user to log in again.
+Open WebUI가 전달하는 JWT에는 신원 정보(이메일, 이름, 역할)만 있고 그룹은 없으므로
+Gateway가 Keycloak에 직접 물어봅니다. 결과는 잠시 캐시되며, 그 덕분에 그룹을 회수하면
+사용자가 다시 로그인하지 않아도 `cache_ttl`초 안에 반영됩니다.
 """
 
 import time

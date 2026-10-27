@@ -1,10 +1,10 @@
-"""OpenAI-compatible gateway in front of all agents.
+"""모든 Agent 앞에 위치하는 OpenAI 호환 Gateway.
 
-Open WebUI talks to this service as if it were the OpenAI API. Each agent is a
-"model". Every chat request is authenticated, authorized against
-config/permissions.yaml and written to the audit log before the agent runs.
+Open WebUI는 이 서비스를 OpenAI API처럼 호출하며, 각 Agent는 하나의 "모델"로 보입니다.
+모든 채팅 요청은 인증 → config/permissions.yaml 기준 권한 검사 → 감사 로그 기록을
+거친 뒤에야 Agent가 실행됩니다.
 
-Run: uvicorn gateway.main:create_app --factory
+실행: uvicorn gateway.main:create_app --factory
 """
 
 import json
@@ -30,7 +30,7 @@ log = logging.getLogger("gateway")
 
 
 def _error(status_code: int, message: str) -> JSONResponse:
-    # OpenAI error shape — Open WebUI shows `message` to the user.
+    # OpenAI 오류 형식 — Open WebUI가 `message`를 사용자에게 그대로 보여 줍니다.
     return JSONResponse(
         status_code=status_code,
         content={"error": {"message": message, "type": "gateway_error", "code": status_code}},
@@ -38,7 +38,7 @@ def _error(status_code: int, message: str) -> JSONResponse:
 
 
 class Completion:
-    """Formats agent output as OpenAI chat.completion / chat.completion.chunk payloads."""
+    """Agent 출력을 OpenAI chat.completion / chat.completion.chunk 형식으로 변환합니다."""
 
     def __init__(self, model: str):
         self.id = f"chatcmpl-{uuid.uuid4().hex}"
@@ -70,7 +70,7 @@ class Completion:
 
 
 async def _guarded(events: AsyncIterator[AgentEvent], cited: list[str]) -> AsyncIterator[AgentEvent]:
-    """Collect citations for the audit log; turn agent failures into a message instead of a broken stream."""
+    """감사 로그용 인용 문서를 모으고, Agent 오류는 스트림을 끊지 않고 안내 메시지로 바꿉니다."""
     try:
         async for event in events:
             if event.type == "citation" and event.content not in cited:
@@ -79,7 +79,7 @@ async def _guarded(events: AsyncIterator[AgentEvent], cited: list[str]) -> Async
     except PermissionDenied:
         yield AgentEvent.text("\n\n요청하신 작업에 대한 권한이 없습니다.")
     except Exception:
-        log.exception("agent failed")
+        log.exception("Agent 실행 실패")
         yield AgentEvent.text("\n\n처리 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.")
 
 
@@ -93,10 +93,12 @@ def create_app(
 ) -> FastAPI:
     settings = settings or Settings.from_env()
     permissions = permissions or Permissions.load(settings.permissions_file)
-    agents = agents or build_registry({a.id: a.name for a in permissions.agents.values()})
+    agents = agents or build_registry(
+        {a.id: a.name for a in permissions.agents.values()}, settings.agent_backend_url
+    )
     mismatch = set(permissions.agents) ^ set(agents)
     if mismatch:
-        raise RuntimeError(f"permissions.yaml and the agent registry disagree on: {sorted(mismatch)}")
+        raise RuntimeError(f"permissions.yaml과 Agent 레지스트리가 일치하지 않습니다: {sorted(mismatch)}")
     directory = directory or KeycloakDirectory(
         settings.keycloak_url,
         settings.keycloak_realm,
@@ -114,7 +116,7 @@ def create_app(
             await audit.close()
             await directory.close()
 
-    app = FastAPI(title="Capstone Agent Gateway", lifespan=lifespan)
+    app = FastAPI(title="Navitech Agent Gateway", lifespan=lifespan)
 
     @app.exception_handler(AuthError)
     async def on_auth_error(_request: Request, exc: AuthError):
@@ -126,10 +128,9 @@ def create_app(
 
     @app.get("/v1/models")
     async def list_models(request: Request):
-        # Every agent is listed. Per-user visibility is handled by Open WebUI's model
-        # access control (synced from the same permissions.yaml), and the real check
-        # happens on each chat request. Open WebUI caches this list, so filtering it
-        # per user here would be unreliable.
+        # 모든 Agent를 나열합니다. 사용자별 표시 여부는 같은 permissions.yaml로 동기화된
+        # Open WebUI 모델 접근 제어가 담당하고, 실제 검사는 채팅 요청마다 수행합니다.
+        # Open WebUI가 이 목록을 캐시하므로 여기서 사용자별로 거르면 신뢰할 수 없습니다.
         check_api_key(request.headers.get("authorization"), settings.backend_api_key)
         return {
             "object": "list",
@@ -159,25 +160,25 @@ def create_app(
                 claims, directory, permissions, chat_id=request.headers.get(settings.chat_id_header)
             )
         except DirectoryUnavailable:
-            log.exception("directory lookup failed")
+            log.exception("사용자 디렉터리 조회 실패")
             return _error(503, "사용자 권한을 확인할 수 없습니다. 잠시 후 다시 시도해 주세요.")
 
         agent = agents.get(model)
         if agent is None:
-            return _error(404, f"unknown model {model!r}")
+            return _error(404, f"알 수 없는 모델입니다: {model!r}")
 
         entry = AuditEntry(
             email=ctx.email,
             agent=model,
             allowed=ctx.can_use(model),
-            reason=None if ctx.can_use(model) else "agent not permitted",
+            reason=None if ctx.can_use(model) else "Agent 사용 권한 없음",
             chat_id=ctx.chat_id,
             query=last_user_text(messages),
         )
         try:
             entry_id = await audit.record(entry)
         except Exception:
-            log.exception("audit write failed")
+            log.exception("감사 로그 기록 실패")
             return _error(503, "감사 로그 기록에 실패하여 요청을 처리할 수 없습니다.")
         if not entry.allowed:
             if not ctx.groups:
@@ -197,7 +198,7 @@ def create_app(
                         if event.type == "text":
                             yield completion.chunk({"content": event.content})
                         elif event.type == "status":
-                            # Open WebUI renders reasoning_content as a collapsible "thinking" block.
+                            # Open WebUI는 reasoning_content를 접을 수 있는 "생각" 블록으로 표시합니다.
                             yield completion.chunk({"reasoning_content": event.content + "\n"})
                     yield completion.chunk({}, finish_reason="stop")
                     yield "data: [DONE]\n\n"

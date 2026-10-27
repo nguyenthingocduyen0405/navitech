@@ -1,6 +1,6 @@
-// Users & permissions admin page.
-// Talks to the Keycloak Admin REST API with the signed-in admin's own token, so Keycloak enforces
-// what they may do and the admin event log records who changed what.
+// 사용자 · 권한 관리 페이지.
+// 로그인한 관리자 본인의 토큰으로 Keycloak Admin REST API를 호출하므로, 할 수 있는 작업은
+// Keycloak이 직접 검사하고 관리자 이벤트 로그에 실제 수정자가 기록됩니다.
 import Keycloak from "https://cdn.jsdelivr.net/npm/keycloak-js@26.2.4/lib/keycloak.js";
 import { load as parseYaml } from "https://cdn.jsdelivr.net/npm/js-yaml@5.4.2/+esm";
 
@@ -53,7 +53,7 @@ async function api(path, { method = "GET", body } = {}) {
   return text ? JSON.parse(text) : null;
 }
 
-// ---------- data ----------
+// ---------- 데이터 ----------
 
 const state = { policy: null, groups: {}, adminRole: null, users: [] };
 
@@ -92,14 +92,14 @@ async function refresh() {
   renderPolicy();
 }
 
-// ---------- helpers ----------
+// ---------- 보조 함수 ----------
 
 const fullName = (u) => [u.lastName, u.firstName].filter(Boolean).join(" ") || u.username;
 const groupLabel = (name) => (state.policy.groups[name]?.description || name).split(/[(—]/)[0].trim();
 const agentLabel = (id) => (state.policy.agents[id]?.name || id).replace(/ Agent$/, "");
 const clearanceOf = (names) => Math.max(0, ...names.map((g) => state.policy.groups[g]?.clearance ?? 0));
 const levelBadge = (level) => el("span", { class: `level level-${level}` }, LEVELS[level]);
-// Groups take the colour of their clearance level (경영진 = 극비 rose, 개발팀 = 공개 green, ...).
+// 그룹은 자기 열람 등급의 색을 씁니다 (경영진 = 극비 빨강, 개발팀 = 공개 초록, ...).
 const groupLevel = (name) => state.policy.groups[name]?.clearance ?? 0;
 const groupChip = (name) => el("span", { class: `chip level-${groupLevel(name)}` }, groupLabel(name));
 const initials = (u) => (u.lastName || u.firstName || u.username).slice(0, 1).toUpperCase();
@@ -142,7 +142,7 @@ function confirmTopSecret(addedGroups) {
   return !topSecret.length || confirm(`'${topSecret.map(groupLabel).join(", ")}' 그룹은 극비 자료를 열람할 수 있습니다. 부여할까요?`);
 }
 
-// ---------- users table ----------
+// ---------- 사용자 표 ----------
 
 function renderStats() {
   const users = state.users;
@@ -251,7 +251,7 @@ function renderPolicy() {
   );
 }
 
-// ---------- dialogs ----------
+// ---------- 대화상자 ----------
 
 function groupOptions(selected) {
   return Object.entries(state.policy.groups).map(([name, g]) => {
@@ -416,7 +416,7 @@ function showPassword(username, password) {
   dialog.showModal();
 }
 
-// ---------- start ----------
+// ---------- 시작 ----------
 
 if (!kc.hasRealmRole(ADMIN_ROLE)) {
   $("#state").textContent = "이 페이지는 시스템 관리자만 사용할 수 있습니다.";

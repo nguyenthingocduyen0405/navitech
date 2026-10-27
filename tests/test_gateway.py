@@ -125,15 +125,15 @@ def test_user_without_groups_gets_nothing(client):
 def test_developer_uses_every_agent_but_sees_only_public_documents(client, audit):
     for model in ("super-agent", "advisory-agent", "news-agent", "meeting-agent"):
         assert chat(client, model, "dev@example.com").status_code == 200
-        assert audit.entries[-1].doc_ids == ["dart-2026-q2-report"]  # 공개 only
+        assert audit.entries[-1].doc_ids == ["dart-2026-q2-report"]  # 공개 자료만
 
 
 def test_direct_agent_call_filters_documents_by_clearance(client, audit):
     resp = chat(client, "news-agent", "staff@example.com")
     assert resp.status_code == 200
     answer = resp.json()["choices"][0]["message"]["content"]
-    assert "ceo-strategy-memo" not in answer  # 극비
-    assert "board-meeting-2026-09" not in answer  # 대외비
+    assert "ceo-strategy-memo" not in answer  # 극비 문서는 보이면 안 됨
+    assert "board-meeting-2026-09" not in answer  # 대외비 문서도 보이면 안 됨
     assert audit.entries[-1].doc_ids == ["dart-2026-q2-report", "industry-hbm-trend"]
 
 
@@ -144,7 +144,7 @@ def test_executive_sees_top_secret(client, audit):
 
 
 def test_super_agent_cannot_be_used_to_bypass_agent_permissions(client):
-    # "전략" routes to advisory-agent, which a secretary may not use directly.
+    # "전략"은 advisory-agent로 라우팅되는데, 회의체 간사는 이 Agent를 직접 쓸 수 없습니다.
     resp = chat(client, "super-agent", "secretary@example.com", text="HBM 투자 전략 검토")
     assert resp.status_code == 200
     message = resp.json()["choices"][0]["message"]
@@ -158,7 +158,7 @@ def test_super_agent_combines_several_agents(client, audit):
     for label in ("경영자문 Agent", "뉴스 Briefing Agent", "회의지원 Agent"):
         assert label in content
     doc_ids = audit.entries[-1].doc_ids
-    assert len(doc_ids) == len(set(doc_ids))  # same document cited by several agents is logged once
+    assert len(doc_ids) == len(set(doc_ids))  # 여러 Agent가 같은 문서를 인용해도 한 번만 기록
 
 
 def test_streaming_response_is_openai_sse(client):

@@ -3,7 +3,7 @@ from collections.abc import AsyncIterator
 from agents.base import Agent, AgentEvent, last_user_text, require_access
 from shared.user_context import UserContext
 
-# Mock router: keyword matching. Replace with an LLM router (small, fast model + structured output).
+# 임시 라우터: 키워드 매칭. 실제로는 LLM 라우터(작고 빠른 모델 + 구조화 출력)로 교체하세요.
 ROUTES = {
     "news-agent": ("뉴스", "news", "동향", "tin tức"),
     "meeting-agent": ("회의", "meeting", "action item", "họp"),
@@ -34,8 +34,8 @@ class SuperAgent:
         question = task or last_user_text(messages)
 
         wanted = self.route(question)
-        # Only delegate to agents the user may use directly — otherwise the
-        # Super Agent becomes a way around the permission table.
+        # 사용자가 직접 쓸 수 있는 Agent에게만 위임합니다.
+        # 그렇지 않으면 Super Agent가 권한표를 우회하는 통로가 됩니다.
         allowed = [a for a in wanted if ctx.can_use(a)]
         yield AgentEvent.status("라우팅: " + ", ".join(self.labels[a] for a in wanted))
         for agent_id in wanted:
@@ -47,12 +47,12 @@ class SuperAgent:
             return
 
         if len(allowed) == 1:
-            # Single agent: stream its answer straight through, no extra LLM pass.
+            # Agent가 하나면 LLM 호출을 추가로 하지 않고 답변을 그대로 스트리밍합니다.
             async for event in self.sub_agents[allowed[0]].run(messages, ctx, task=question):
                 yield event
             return
 
-        # Several agents: collect, then synthesize (mock: concatenate sections).
+        # Agent가 여럿이면 결과를 모은 뒤 종합합니다 (mock: 섹션을 이어 붙임).
         sections = []
         for agent_id in allowed:
             yield AgentEvent.status(f"{self.labels[agent_id]} 호출 중...")

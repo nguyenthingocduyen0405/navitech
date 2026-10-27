@@ -1,7 +1,7 @@
-"""Who asked what, through which agent, and which documents were used.
+"""누가, 어떤 Agent로, 무엇을 물었고, 어떤 문서가 사용되었는지 기록합니다.
 
-A request is recorded *before* the agent runs (fail-closed: no audit, no answer);
-the documents used are filled in when the answer finishes.
+요청은 Agent 실행 *전에* 기록하며 (fail-closed: 기록 실패 시 답변 없음),
+사용된 문서는 답변이 끝난 뒤 채워 넣습니다.
 """
 
 import logging
@@ -82,11 +82,11 @@ class PostgresAuditLog:
         try:
             await self._pool.execute("UPDATE audit_log SET doc_ids = $2 WHERE id = $1", entry_id, doc_ids)
         except Exception:
-            log.exception("failed to record documents for audit entry %s", entry_id)
+            log.exception("감사 로그 %s의 사용 문서 기록 실패", entry_id)
 
 
 class MemoryAuditLog:
-    """For tests and local runs without Postgres."""
+    """테스트 및 Postgres 없이 로컬 실행할 때 사용합니다."""
 
     def __init__(self):
         self.entries: list[AuditEntry] = []

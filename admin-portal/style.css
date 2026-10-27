@@ -1,9 +1,9 @@
-/* Shares the brand tokens of the login theme (infra/keycloak/themes/capstone) and Open WebUI overrides.
-   Clearance colours: 공개 green · 사내 blue · 대외비 amber · 극비 rose — groups reuse the colour of their clearance. */
+/* 로그인 테마(infra/keycloak/themes/capstone), Open WebUI 스타일과 브랜드 토큰을 공유합니다.
+   열람 등급 색상: 공개 초록 · 사내 파랑 · 대외비 주황 · 극비 빨강 — 그룹은 자기 열람 등급의 색을 씁니다. */
 :root {
   --font: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, "Apple SD Gothic Neo",
     "Malgun Gothic", "Segoe UI", sans-serif;
-  /* brand — change these to re-colour every screen */
+  /* 브랜드 색상 — 이 값을 바꾸면 모든 화면 색이 바뀝니다 */
   --gradient: linear-gradient(135deg, #4f46e5 0%, #7c3aed 60%, #c026d3 100%);
   --brand: #4f46e5;
   --brand-soft: #eef0ff;
@@ -11,7 +11,7 @@
   --ring: rgba(99, 102, 241, 0.45);
   --glow-1: rgba(99, 102, 241, 0.16);
   --glow-2: rgba(217, 70, 239, 0.1);
-  /* surfaces */
+  /* 배경·면 색상 */
   --bg: #f7f7fb;
   --card: #ffffff;
   --surface: #f3f3f8;
@@ -20,7 +20,7 @@
   --muted: #71717a;
   --danger: #e11d48;
   --shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 12px 32px -16px rgba(79, 70, 229, 0.18);
-  /* clearance levels */
+  /* 열람 등급 색상 */
   --l0: #f4f4f5;
   --l0-text: #71717a;
   --l0-solid: linear-gradient(135deg, #a1a1aa, #71717a);
@@ -105,7 +105,7 @@ code {
   color: var(--muted);
 }
 
-/* ---- top bar ---- */
+/* ---- 상단 바 ---- */
 .topbar {
   position: sticky;
   top: 0;
@@ -163,7 +163,7 @@ code {
   white-space: nowrap;
 }
 
-/* ---- layout ---- */
+/* ---- 레이아웃 ---- */
 main {
   max-width: 1120px;
   margin: 0 auto;
@@ -247,7 +247,7 @@ input[type="search"]:focus-visible,
   box-shadow: 0 0 0 2px var(--ring);
 }
 
-/* ---- stats ---- */
+/* ---- 통계 카드 ---- */
 .stats {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -296,7 +296,7 @@ input[type="search"]:focus-visible,
   font-size: 0.8rem;
 }
 
-/* ---- buttons ---- */
+/* ---- 버튼 ---- */
 .btn {
   font: inherit;
   font-weight: 600;
@@ -338,7 +338,7 @@ input[type="search"]:focus-visible,
   outline-offset: 2px;
 }
 
-/* ---- tables ---- */
+/* ---- 표 ---- */
 .table-wrap {
   overflow-x: auto;
   background: var(--card);
@@ -443,7 +443,7 @@ tbody tr:last-child td {
   padding: 32px;
 }
 
-/* ---- chips & badges ---- */
+/* ---- 칩 · 배지 ---- */
 .chips {
   display: flex;
   flex-wrap: wrap;
@@ -539,7 +539,7 @@ tbody tr:last-child td {
   background: var(--muted);
 }
 
-/* ---- dialog ---- */
+/* ---- 대화상자 ---- */
 dialog {
   width: min(580px, calc(100vw - 32px));
   max-height: calc(100vh - 48px);
@@ -716,7 +716,7 @@ menu {
   letter-spacing: 0.04em;
 }
 
-/* ---- toast ---- */
+/* ---- 알림 토스트 ---- */
 #toast {
   position: fixed;
   left: 50%;
@@ -745,7 +745,7 @@ menu {
   box-shadow: none;
 }
 
-/* ---- small screens ---- */
+/* ---- 작은 화면 ---- */
 @media (max-width: 860px) {
   .stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
