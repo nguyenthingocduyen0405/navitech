@@ -26,7 +26,7 @@ log = logging.getLogger("gateway.desk")
 STATIC = Path(__file__).resolve().parent / "static" / "meetings"
 ENDPOINTS = ("overview", "mail", "flags", "items", "meeting", "schedule", "report")
 FIELDS = ("action", "view", "meeting_id", "mail_ids", "email", "note", "reviews", "item_id", "status",
-          "title", "starts_at", "ends_at", "location", "attendees", "agenda", "classification", "kind")
+          "title", "starts_at", "ends_at", "location", "attendees", "agenda", "classification", "kind", "owner", "due")
 READ_ACTIONS = ("list", None)
 PERMISSION = "meeting-agent"  # 회의지원 Agent를 쓸 수 있는 사용자만
 TIMEOUT = httpx.Timeout(20.0, connect=5.0)

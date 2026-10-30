@@ -66,7 +66,7 @@ Agent 전환은 Open WebUI 왼쪽 메뉴의 고정 목록(`DEFAULT_PINNED_MODELS
 | `infra/agent-backend/Dockerfile` | Agent backend 이미지. `agents-k`, `agents-group` 두 서비스가 같은 Dockerfile 사용 | Agent |
 | `infra/speech-service/` | 화자 식별 STT, 음성 등록 페이지 `/voice/`, 회의 transcript를 id로 보관 (`GET /internal/transcripts/{id}`) | 회의 |
 | `infra/retention/` | Open WebUI가 보관하는 회의 녹음 파일을 보존 기간 후 삭제 | 회의 |
-| `gateway/desk.py`, `gateway/static/meetings/` | **회의 업무 화면** `/meetings/`: 회의록 목록 · 상세(회의록 · 회의 결과 보고서 PDF 내려받기, 감사 로그 기록), Agent가 보낸 메일 기록(실패하면 다시 보내기), Compliance 검토, Action Item 완료를 버튼으로 (Agent 없이 backend `/api/desk/*`). Open WebUI 로그인 토큰으로 사용자를 확인하고 회의지원 Agent 권한이 있어야 열림. 왼쪽 메뉴 링크는 `infra/open-webui/loader.js` | 회의 |
+| `gateway/desk.py`, `gateway/static/meetings/` | **회의 업무 API** `/meetings/api/*` — 채팅의 회의 카드가 씁니다. 예전 화면 `/meetings/`(메뉴에서 뺌): 회의록 목록 · 상세(회의록 · 회의 결과 보고서 PDF 내려받기, 감사 로그 기록), Agent가 보낸 메일 기록(실패하면 다시 보내기), Compliance 검토, Action Item 완료를 버튼으로 (Agent 없이 backend `/api/desk/*`). Open WebUI 로그인 토큰으로 사용자를 확인하고 회의지원 Agent 권한이 있어야 열림. 왼쪽 메뉴 링크는 `infra/open-webui/loader.js` | 회의 |
 | `tests/` | Gateway 보안 테스트 | Auth |
 
 ## 서버에서 실행
@@ -134,6 +134,7 @@ Open WebUI는 권한이 부여된 모델만 일반 사용자에게 보여 줍니
 |---|---|
 | `infra/keycloak/themes/capstone/login/resources/css/capstone.css` | 로그인 테마 `capstone` (`keycloak.v2` 상속). 수정 후 페이지 새로고침만 하면 됨 (dev 모드는 테마 캐시 없음) |
 | `infra/open-webui/custom.css` | Open WebUI의 글꼴·글자 크기(기본 10% 확대)·색상·테두리. 수정 후 `sudo docker compose restart open-webui` |
+| `infra/open-webui/loader.js` | Open WebUI에 끼워 넣는 스크립트: 'Agent 목록' 제목, **회의 카드** — gateway가 회의 Tool 결과로 답변 끝에 붙인 ```navitech 블록(회의록 · 일정 · 할 일 · 메일)을 버튼 있는 카드로 바꾸고(PDF · 완료 · 다시 보내기 · 위험 발언 검토 · 확정 요청 · 이 회의 녹음 시작), 새 회의지원 채팅 첫 화면에 '오늘의 회의 업무' 카드, 그리고 **회의지원 Agent 채팅의 회의 녹음** — 녹음 시작 효과 · 녹음 중 표시, ✓를 누르면 글로 옮긴 회의록을 녹음 시각과 함께 자동으로 보내 예약된 회의에 초안 저장 (다른 Agent의 음성 입력은 그대로). 수정 후 `sudo docker compose restart open-webui` (파일 하나를 마운트하므로 재시작해야 반영) |
 
 - `OAUTH_AUTO_REDIRECT=true`: Open WebUI 자체 로그인 화면을 건너뛰고 공통 로그인 페이지로 바로 이동합니다.
 - 각 사용자는 **설정 → 인터페이스 → UI Scale**에서 글자 크기를 추가로 조절할 수 있습니다 (기본값에 곱해짐).

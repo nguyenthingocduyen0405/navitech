@@ -119,6 +119,31 @@ def test_specialist_routes_to_its_backend_endpoint(audit):
                                                    "agents": ["advisory", "meeting", "news"]}
 
 
+def test_meeting_tool_results_become_card_blocks_after_the_answer(audit):
+    body = ndjson(
+        group({"type": "tool_end", "agent": "meeting", "tool": "run_meeting_schedule",  # a look at the calendar first
+               "result": {"ok": True, "meetings": [{"id": "MTG-2026-11-02-01"}]}}),
+        group({"type": "tool_end", "agent": "meeting", "tool": "save_meeting_minutes",
+               "result": {"saved": True, "meeting_id": "MTG-2026-10-30-01"}}),
+        group({"type": "tool_end", "agent": "meeting", "tool": "run_action_item_tracking",
+               "result": {"items": [{"id": "MTG-2026-10-30-01-A1"}, {"id": "MTG-2026-10-30-01-A2"}]}}),
+        group({"type": "tool_end", "agent": "meeting", "tool": "save_meeting_minutes", "result": {"saved": False, "error": "x"}}),
+        k({"type": "tool_end", "agent": "meeting", "tool": "save_meeting_minutes", "result": {"saved": True, "meeting_id": "MTG-K"}}),
+        group({"type": "tool_end", "agent": "meeting", "tool": "save_meeting_minutes",  # the same minutes again: one card
+               "result": {"saved": True, "meeting_id": "MTG-2026-10-30-01", "mail_queued": [{"id": "MAIL-7"}, {"id": "MAIL-8"}]}}),
+        group({"type": "agent_token", "agent": "meeting", "text": "초안을 저장했습니다."}),
+        group({"type": "done"}),
+    )
+    with make_client(FakeBackend(body), audit) as client:
+        content = chat(client, "meeting-agent", "ceo@example.com").json()["choices"][0]["message"]["content"]
+    answer, *blocks = content.split("\n\n```navitech\n")
+    assert answer.endswith("초안을 저장했습니다.")
+    cards = [json.loads(b.removesuffix("\n```")) for b in blocks]
+    assert cards == [{"card": "items", "ids": ["MTG-2026-10-30-01-A1", "MTG-2026-10-30-01-A2"]},
+                     {"card": "meeting", "id": "MTG-2026-10-30-01"},
+                     {"card": "mail", "ids": ["MAIL-7", "MAIL-8"]}]  # nothing for failures or for K Electronics' store
+
+
 def test_answer_without_tokens_uses_agent_end(audit):
     body = ndjson(group({"type": "agent_end", "agent": "news", "response": "전체 답변"}), group({"type": "done"}))
     with make_client(FakeBackend(body), audit) as client:
@@ -201,7 +226,7 @@ def test_build_request_keeps_recent_history_without_reasoning_blocks():
     messages = [
         {"role": "system", "content": "무시"},
         {"role": "user", "content": "뉴로엣지 인수 검토해줘"},
-        {"role": "assistant", "content": '<details type="reasoning">생각</details>\n본실사 진입 권고'},
+        {"role": "assistant", "content": '<details type="reasoning">생각</details>\n본실사 진입 권고\n\n```navitech\n{"card": "meeting", "id": "M"}\n```'},
         {"role": "user", "content": [{"type": "text", "text": "CFO 관점에서 다시"}]},
     ]
     request = build_request(messages)

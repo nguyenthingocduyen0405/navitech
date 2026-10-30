@@ -7,7 +7,12 @@ backend는 요청 하나를 받아 실행 lifecycle 이벤트를 NDJSON으로 �
     호출한 Agent 자신의 agent_token        → text      (답변이 글자 단위로 스트리밍)
     위임 · A2A · Workflow Tool 진행 상황   → status    ("생각" 블록)
     Workflow 결과의 회의 · 기사 id         → citation  (감사 로그)
+    회의 Tool 결과(회의록 · 일정 · 할 일 · 메일) → 답변 끝의 ```navitech 블록 (카드)
     error                                  → text      (어느 Agent가 실패했는지 안내)
+
+카드 블록에는 무엇을 보여 줄지(회의 id · 할 일 id · 메일 id)만 들어갑니다. Open WebUI에 끼워 넣은 스크립트
+(infra/open-webui/loader.js)가 그 블록을 카드로 바꾸고, 내용은 회의 업무 API(/meetings/api/*)에서 그때그때 읽습니다.
+카드는 모델이 쓰지 않고 이 Tool 결과에서만 나옵니다.
 
 Super Agent는 backend 안에서 전문 Agent에게 위임합니다. principal에 사용자가 쓸 수 있는 전문 Agent 목록(agents)을
 함께 보내므로, backend는 그 밖의 Agent에는 위임하지 않고 delegation_skipped를 보낸 뒤 나머지로 답합니다.
@@ -68,6 +73,12 @@ BACKEND_TIMEOUT = httpx.Timeout(connect=5.0, read=600.0, write=10.0, pool=5.0)
 
 _DETAILS = re.compile(r"<details\b.*?</details>", re.DOTALL)
 
+# 답변 끝의 카드 블록 (loader.js가 그림). 다음 요청의 대화 맥락에서는 뺍니다.
+CARD_FENCE = "navitech"
+_CARDS = re.compile(r"```navitech\n.*?```", re.DOTALL)
+MAX_CARD_ITEMS = 12  # 카드 하나에 담는 할 일 · 메일 수
+MAX_CARD_MEETINGS = 4
+
 
 def _clip(text: str, limit: int) -> str:
     text = str(text).strip()
@@ -90,8 +101,8 @@ def build_request(messages: list[dict]) -> str:
         turns = turns[:-1]
     history = []
     for m in turns[-MAX_HISTORY_MESSAGES:]:
-        # Open WebUI가 답변에 붙여 둔 "생각" 블록은 맥락에서 뺍니다.
-        text = _DETAILS.sub("", _text(m.get("content"))).strip()
+        # Open WebUI가 답변에 붙여 둔 "생각" 블록과 카드 블록은 맥락에서 뺍니다.
+        text = _CARDS.sub("", _DETAILS.sub("", _text(m.get("content")))).strip()
         if text:
             speaker = "사용자" if m["role"] == "user" else "AI"
             history.append(f"{speaker}: {_clip(text, MAX_HISTORY_CHARS)}")
@@ -138,6 +149,54 @@ def cited_documents(event: dict) -> list[str]:
     return [f"{system}/{i}" for i in ids if i]
 
 
+def cards_from(event: dict) -> list[dict]:
+    """그룹 회의 Tool 결과가 가리키는 회의록 · 일정 · 할 일 · 메일 (K전자에서 relay된 결과는 이 화면의 저장소가 아님)."""
+    result = event.get("result")
+    if event.get("relayed") or event.get("system") not in (None, "group") or not isinstance(result, dict):
+        return []
+    tool = event.get("tool")
+
+    def ids(rows, limit=MAX_CARD_ITEMS):
+        return [r["id"] for r in rows or [] if isinstance(r, dict) and r.get("id")][:limit]
+
+    # 확정 · 예약 · 담당 지정으로 나간 메일 (받는 사람 · 보냄 여부)
+    sent = ids(result.get("mail_queued"))
+    mail = [{"card": "mail", "ids": sent}] if sent else []
+
+    if tool == "save_meeting_minutes" and result.get("saved") and result.get("meeting_id"):
+        return [{"card": "meeting", "id": result["meeting_id"]}, *mail]
+    if tool == "run_meeting_schedule" and result.get("ok") is not False:
+        if isinstance(result.get("meeting"), dict) and result["meeting"].get("id"):
+            return [{"card": "meeting", "id": result["meeting"]["id"]}, *mail]
+        found = ids(result.get("meetings"), MAX_CARD_MEETINGS)
+        return [{"card": "meetings", "ids": found}] if found else []
+    if tool == "run_meeting_context_retrieval":
+        found = ids(result.get("meetings"), MAX_CARD_MEETINGS)
+        return [{"card": "meetings", "ids": found}] if found else []
+    if tool == "run_action_item_tracking":
+        found = ids(result.get("items"))
+        return [{"card": "items", "ids": found}] if found else []
+    if tool == "update_action_item" and result.get("updated") and isinstance(result.get("item"), dict):
+        return [{"card": "items", "ids": ids([result["item"]])}, *mail]
+    if tool == "manage_mail_outbox" and result.get("ok") is not False:
+        found = ids(result.get("mails"))
+        return [{"card": "mail", "ids": found}] if found else []
+    return []
+
+
+def card_blocks(cards: list[dict]) -> str:
+    """답변 끝에 붙는 카드 블록 (같은 카드는 한 번만, 같은 종류의 목록은 뒤의 것으로). 회의 하나를 예약 · 저장한 답변에는
+    그 전에 겹치는 일정을 확인하려고 조회한 회의 목록을 붙이지 않는다."""
+    if any(c["card"] == "meeting" for c in cards):
+        cards = [c for c in cards if c["card"] != "meetings"]
+    latest: dict[str, dict] = {}
+    for card in cards:
+        key = card["card"] + (f":{card['id']}" if "id" in card else "")
+        latest.pop(key, None)
+        latest[key] = card
+    return "".join(f"\n\n```{CARD_FENCE}\n{json.dumps(c, ensure_ascii=False)}\n```" for c in latest.values())
+
+
 class RemoteAgent:
     def __init__(
         self,
@@ -182,6 +241,7 @@ class RemoteAgent:
     async def _translate(self, lines: AsyncIterator[str], ctx: UserContext) -> AsyncIterator[AgentEvent]:
         root = self.backend_agent
         answered = False  # 마지막 진행 상황 이후 이 Agent의 답변 텍스트가 나왔는가
+        cards: list[dict] = []
         async for line in lines:
             if not line.strip():
                 continue
@@ -201,6 +261,8 @@ class RemoteAgent:
                     yield AgentEvent.text(event.get("response", ""))
                 continue
             if kind == "done":
+                if cards:
+                    yield AgentEvent.text(card_blocks(cards))
                 return
             if kind == "error":
                 yield AgentEvent.text(
@@ -230,6 +292,7 @@ class RemoteAgent:
             elif kind == "tool_end":
                 for doc_id in cited_documents(event):
                     yield AgentEvent.citation(doc_id)
+                cards += cards_from(event)
                 status = f"{agent_label(event.get('agent'), system)}: {event.get('tool')} 완료"
             if status:
                 if answered:
