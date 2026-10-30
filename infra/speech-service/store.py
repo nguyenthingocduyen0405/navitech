@@ -1,4 +1,8 @@
-"""Voiceprint store: Postgres, database `speech` (only this service has its credentials).
+"""Voiceprint store and transcript hand-off: Postgres, database `speech` (only this service has its credentials).
+
+Meeting transcripts are kept for TRANSCRIPT_RETENTION_DAYS (default 30) under an id the user sees
+("[transcript_id: TR-…]"), so the Meeting Agent can copy the speaker-labelled lines into its own
+records by that id instead of the model re-typing them; past that date they are deleted.
 
 Only the embedding is kept — enrollment audio never touches disk. A voiceprint is
 biometric data (개인정보보호법 민감정보): stored with the consent time, deletable by its owner,
@@ -10,17 +14,20 @@ from __future__ import annotations
 
 import base64
 import os
+import secrets
 from datetime import datetime
 
 import numpy as np
 import psycopg
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from psycopg.rows import dict_row
+from psycopg.types.json import Jsonb
 
 from speech import Voiceprint
 
 DATABASE_URL = os.environ.get("SPEECH_DATABASE_URL", "")
 VOICEPRINT_KEY = os.environ.get("VOICEPRINT_KEY", "")  # base64 of 32 random bytes; lost key = everyone re-enrolls
+TRANSCRIPT_RETENTION_DAYS = int(os.environ.get("TRANSCRIPT_RETENTION_DAYS", "30"))
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS voiceprints (
@@ -35,6 +42,16 @@ CREATE TABLE IF NOT EXISTS voiceprints (
     created_at   timestamptz NOT NULL DEFAULT now(),
     updated_at   timestamptz NOT NULL DEFAULT now()
 );
+CREATE TABLE IF NOT EXISTS transcripts (
+    id           text PRIMARY KEY,          -- TR-20261028-1A2B3C (텍스트 첫 줄에 표시)
+    source_name  text,                      -- 업로드 파일 이름
+    duration     real NOT NULL,
+    engine       text NOT NULL,
+    turns        jsonb NOT NULL,            -- [{start, end, speaker, score, text}]
+    created_at   timestamptz NOT NULL DEFAULT now(),
+    expires_at   timestamptz NOT NULL
+);
+CREATE INDEX IF NOT EXISTS transcripts_expires ON transcripts (expires_at);
 """
 
 
@@ -110,6 +127,35 @@ def all_voiceprints(model: str) -> list[Voiceprint]:
 def count(model: str) -> int:
     with _connect() as conn:
         return conn.execute("SELECT count(*) AS n FROM voiceprints WHERE model = %s", (model,)).fetchone()["n"]
+
+
+def save_transcript(source_name: str, duration: float, engine: str, turns: list[dict]) -> str:
+    with _connect() as conn:
+        while True:
+            tid = f"TR-{datetime.now().strftime('%Y%m%d')}-{secrets.token_hex(3).upper()}"
+            row = conn.execute(
+                """INSERT INTO transcripts (id, source_name, duration, engine, turns, expires_at)
+                   VALUES (%s, %s, %s, %s, %s, now() + make_interval(days => %s)) ON CONFLICT (id) DO NOTHING RETURNING id""",
+                (tid, source_name, duration, engine, Jsonb(turns), TRANSCRIPT_RETENTION_DAYS),
+            ).fetchone()
+            if row:
+                return tid
+
+
+def get_transcript(tid: str) -> dict | None:
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT id, source_name, duration, engine, turns, created_at FROM transcripts WHERE id = %s AND expires_at > now()",
+            (tid,),
+        ).fetchone()
+    if row is None:
+        return None
+    return {**row, "created_at": iso(row["created_at"])}
+
+
+def purge_transcripts() -> int:
+    with _connect() as conn:
+        return conn.execute("DELETE FROM transcripts WHERE expires_at <= now()").rowcount
 
 
 def iso(ts: datetime | None) -> str | None:

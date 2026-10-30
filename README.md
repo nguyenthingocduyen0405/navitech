@@ -2,17 +2,17 @@
 
 **SSO 로그인(Keycloak) → Open WebUI → Gateway(권한 검사·감사 로그) → 4종 Agent**가 처음부터 끝까지 동작합니다.
 Agent는 **Agent backend**(`agent-backend/` = [flopsoda/capstone_demo](https://github.com/flopsoda/capstone_demo), LangGraph + Ollama Cloud)의 실제 Agent입니다.
-Open WebUI의 4개 모델은 backend의 **Group Agent System**에 연결되고, 그룹 슈퍼에이전트는 필요하면 **K전자 Agent System**에 A2A로 검토를 요청합니다.
+Open WebUI의 4개 모델은 backend의 **Group Agent System**에 연결되고, 그룹 슈퍼에이전트는 필요하면 **K전자 Agent System**에 A2A로 검토를 요청하거나 업무를 전달합니다.
 
 ```
-Open WebUI ── 4개 중 선택: Super Agent | 경영자문 | 뉴스 Briefing | 회의지원
+Open WebUI ── 왼쪽 메뉴에서 선택: Super Agent | 경영자문 | 뉴스 Briefing | 회의지원
      │  OpenAI API  +  X-OpenWebUI-User-Jwt (HS256 서명 JWT)
      ▼
 Gateway (FastAPI)  gateway/
   1. API 키 확인  →  2. JWT 검증  →  3. Keycloak에서 그룹 조회
   4. UserContext 생성 + 권한 검사 (config/permissions.yaml)  →  5. audit_log 기록
      │
-     │  agents/remote.py: POST /api/agents/{id}/run (NDJSON 이벤트 스트림)
+     │  agents/remote.py: POST /api/agents/{id}/run (NDJSON 이벤트 스트림) + principal_token (요청자를 HS256 서명)
      ▼
 agents-group (Group Agent System, :8001 내부)
      ├── super-agent    ──► 그룹 슈퍼에이전트 ──┬─ 위임 ─► 그룹 미팅 / 뉴스 / 경영자문 에이전트
@@ -20,7 +20,7 @@ agents-group (Group Agent System, :8001 내부)
      │                                                       K전자 슈퍼에이전트 ─ 위임 ─► 미팅 / 뉴스 / 경영자문
      ├── advisory-agent ──► 그룹 경영자문 에이전트 (run_mna_review)
      ├── news-agent     ──► 그룹 뉴스 에이전트 (run_company_risk_news_analysis)
-     └── meeting-agent  ──► 그룹 미팅 에이전트 (run_meeting_context_retrieval)
+     └── meeting-agent  ──► 그룹 미팅 에이전트 (회의록 · Action Item · 일정 · 메일 발송함)
                                               │
                                               ▼
                               Ollama Cloud LLM · fixture 데이터 (agent-backend/backend/app/systems/*/data)
@@ -28,7 +28,26 @@ agents-group (Group Agent System, :8001 내부)
 
 Gateway가 backend 이벤트를 OpenAI 스트림으로 바꿉니다: 호출한 Agent 자신의 답변 토큰 → 답변,
 위임 · A2A · Workflow Tool 진행 상황 → 접을 수 있는 "생각" 블록, Workflow 결과의 회의 · 기사 id → 감사 로그.
-Super Agent가 사용자에게 권한이 없는 전문 Agent(K전자 쪽 포함)에게 위임하려 하면 Gateway가 그 시점에 응답을 끊습니다.
+Gateway는 사용자가 쓸 수 있는 전문 Agent 목록을 principal에 담아 보내므로, Super Agent는 권한 없는 전문 Agent(K전자 쪽 포함)는 건너뛰고
+("사용 권한 없음 → 건너뜀") 나머지 결과로 답합니다. 그래도 권한 없는 위임이 시작되면 Gateway가 그 시점에 응답을 끊습니다 (안전장치).
+Agent 전환은 Open WebUI 왼쪽 메뉴의 고정 목록(`DEFAULT_PINNED_MODELS`)에서 하고, 입력창의 모델 선택 버튼은 숨깁니다 (`infra/open-webui/custom.css`).
+
+### 회의지원 Agent의 회의 전 · 중 · 후 (2026-10-28)
+
+| 기능 | 어디서 | 설정 |
+|---|---|---|
+| 회의 녹음 → 화자 라벨 transcript | speech-service: 첫 줄에 `[transcript_id: TR-…]`, 30일 보관 | `TRANSCRIPT_RETENTION_DAYS` |
+| transcript를 회의에 연결 (발언 원문 · 근거 발언 링크) | 미팅 에이전트가 id로 speech-service에서 가져와 1년 보관 | `MEETINGS_TRANSCRIPT_RETENTION_DAYS` |
+| 위험 발언 표시 → 간사 검토 후 확정 | 규칙(자본시장법 · 공정거래법 · 청탁금지법 · 외부감사법 · 노동조합법 · 개인정보) | — |
+| 확정 · 정정 · 검토 · 메일 재발송 · 취소 · 업무 접수 권한 | 회의의 의장 · 간사 + 그룹 | `MEETINGS_CONFIRM_GROUPS` (기본 `secretary,executive`) |
+| 메일: 회의록 · 업무 배정 · 회의 안내 · 기한 알림(D-3 · D-1 · 당일 · 경과) | 회의지원 Agent가 받는 사람의 주소를 찾아(Keycloak 등록 이메일 → 임직원 · 외부 연락처) 승인 없이 바로 SMTP로 발송. 못 찾으면 매일 다시 찾음 | `SMTP_*` (비면 메일은 발송 대기) |
+| 그룹 → K전자 업무 전달 | Super Agent가 A2A로 전달 → K전자 쪽에 접수 대기로 남음 (배포 화면에는 K전자 확인 창구가 없음) | — |
+| 녹음 파일 보존 기간 | `retention` 서비스가 Open WebUI 업로드의 녹음(wav · mp3 · json)을 삭제 | `AUDIO_RETENTION_DAYS` (30) |
+
+- backend는 gateway가 `PRINCIPAL_SIGNING_KEY`로 서명한 요청자만 믿습니다 (서명 없이 사용자를 보내면 401). Group → K A2A도 같은 서명을 그대로 전달합니다.
+- 메일 받는 사람의 주소는 backend가 gateway의 내부 API `GET /internal/directory/people?name=`(Bearer `INTERNAL_API_KEY`)로 찾습니다. 이름이 정확히 한 명일 때만 쓰고,
+  못 찾으면 "주소 필요"로 남겨 간사가 알려 주게 합니다. 공개 nginx(`api.` 호스트)는 `/internal/`을 막습니다.
+- 메일 발송 계정 (예: Gmail 앱 비밀번호): `.env`에 `SMTP_HOST=smtp.gmail.com`, `SMTP_PORT=587`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM` → `docker compose up -d agents-k agents-group`.
 
 ## 디렉터리 구성
 
@@ -45,6 +64,9 @@ Super Agent가 사용자에게 권한이 없는 전문 Agent(K전자 쪽 포함)
 | `agents/mock.py`, `agents/super_agent.py` | 가짜 Agent — `AGENT_BACKEND_URL`이 비어 있을 때 (테스트, 로컬 실행) | Agent |
 | `agent-backend/` | Agent backend 저장소 (flopsoda/capstone_demo, private) — `backend/`만 이미지로 빌드 | Agent |
 | `infra/agent-backend/Dockerfile` | Agent backend 이미지. `agents-k`, `agents-group` 두 서비스가 같은 Dockerfile 사용 | Agent |
+| `infra/speech-service/` | 화자 식별 STT, 음성 등록 페이지 `/voice/`, 회의 transcript를 id로 보관 (`GET /internal/transcripts/{id}`) | 회의 |
+| `infra/retention/` | Open WebUI가 보관하는 회의 녹음 파일을 보존 기간 후 삭제 | 회의 |
+| `gateway/desk.py`, `gateway/static/meetings/` | **회의 업무 화면** `/meetings/`: 회의록 목록 · 상세(회의록 · 회의 결과 보고서 PDF 내려받기, 감사 로그 기록), Agent가 보낸 메일 기록(실패하면 다시 보내기), Compliance 검토, Action Item 완료를 버튼으로 (Agent 없이 backend `/api/desk/*`). Open WebUI 로그인 토큰으로 사용자를 확인하고 회의지원 Agent 권한이 있어야 열림. 왼쪽 메뉴 링크는 `infra/open-webui/loader.js` | 회의 |
 | `tests/` | Gateway 보안 테스트 | Auth |
 
 ## 서버에서 실행
@@ -77,10 +99,10 @@ ssh -i <key.pem> -p <SSH_PORT> -N -L 3000:127.0.0.1:3000 -L 3001:127.0.0.1:3001 
 
 | 로그인 | 역할 | 그룹 | 열람 등급 | 사용 가능한 Agent |
 |---|---|---|---|---|
-| `ceo` | user | executive | 4 (극비) | 4종 모두 |
-| `secretary` | user | secretary | 3 (대외비) | Super, 뉴스, 회의지원 |
-| `staff` | user | staff | 2 (사내) | 4종 모두 |
-| `sysadmin` | **admin** | developer | 1 (공개) | 4종 모두 + 사용자 관리 |
+| `ceo` | user | executive | 4 (극비) | 4종 모두 (회의록 확정 · 메일 재발송 가능) |
+| `secretary` | user | secretary | 3 (대외비) | Super, 뉴스, 회의지원 (회의록 확정 · 메일 재발송 가능) |
+| `staff` | user | staff | 2 (사내) | 4종 모두 (회의록은 초안까지) |
+| `sysadmin` | **admin** | developer | 1 (공개) | 4종 모두 + 사용자 관리 (회의록은 초안까지) |
 
 ### 권한 체계: 서로 독립된 두 축
 
@@ -178,6 +200,8 @@ LLM 모델 변경: `.env`의 `OLLAMA_MODEL` (기본 `deepseek-v4.1-flash`) 수�
 - 감사 로그는 Agent 실행 전에 기록하며, 기록에 실패하면 요청을 거부합니다.
 - Open WebUI 관리자는 다른 사람의 채팅을 볼 수 없습니다 (`ENABLE_ADMIN_CHAT_ACCESS=false`).
 - `start-dev` + HTTP는 SSH 터널을 통한 개발용입니다. 인터넷에 공개하려면 HTTPS + `kc.sh start`가 필요합니다.
+- Agent backend는 `PRINCIPAL_SIGNING_KEY`로 서명된 요청자만 믿습니다. 키는 gateway · agents-k · agents-group만 가집니다.
+- 회의지원 Agent는 메일을 승인 없이 보냅니다. 자가 회원가입이 켜져 있으므로 받는 주소를 이름으로 찾을 때는 관리자가 그룹을 배정한 Keycloak 계정만 쓰고 (`gateway/directory.py` `search_people`), 그다음은 Agent backend의 임직원 · 외부 연락처(`staff_directory`)입니다. 자가 가입 계정은 이름이 같아도 회의 메일을 받지 못합니다. 그룹이 있는 사용자가 계정 화면에서 이름을 바꾸는 것도 막으려면 Keycloak 사용자 프로필에서 이름 수정을 관리자 전용으로 두세요.
 
 ## 테스트
 

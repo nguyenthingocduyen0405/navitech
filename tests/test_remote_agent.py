@@ -90,7 +90,8 @@ def test_super_agent_streams_own_answer_and_shows_handoffs_as_reasoning(audit):
     assert "그룹 슈퍼에이전트 → K전자 슈퍼에이전트 A2A 요청: 뉴로엣지 검토" in reasoning
     assert "K전자 뉴스 에이전트" in reasoning and "run_company_risk_news_analysis" in reasoning
     assert audit.entries[-1].doc_ids == ["k_electronics/news-001"]
-    principal = {"email": "ceo@example.com", "name": "CEO", "groups": ["executive"], "clearance": 4}
+    principal = {"email": "ceo@example.com", "name": "CEO", "groups": ["executive"], "clearance": 4,
+                 "agents": ["advisory", "meeting", "news"]}
     assert backend.requests == [("/api/agents/group-super/run", {"request": "뉴로엣지 인수 판단", "principal": principal})]
 
 
@@ -114,7 +115,8 @@ def test_specialist_routes_to_its_backend_endpoint(audit):
     assert resp.json()["choices"][0]["message"]["content"] == "회의 요약"
     assert backend.requests[0][0] == "/api/agents/meeting/run"
     # The backend's tools filter records by this user, never by anything the model says.
-    assert backend.requests[0][1]["principal"] == {"email": "staff@example.com", "name": "실무자", "groups": ["staff"], "clearance": 2}
+    assert backend.requests[0][1]["principal"] == {"email": "staff@example.com", "name": "실무자", "groups": ["staff"], "clearance": 2,
+                                                   "agents": ["advisory", "meeting", "news"]}
 
 
 def test_answer_without_tokens_uses_agent_end(audit):
@@ -138,6 +140,23 @@ def test_super_agent_cannot_delegate_to_agent_the_user_may_not_use(audit):
     assert "권한이 없습니다" in message["content"]
     assert "최종 판단" not in message["content"]
     assert "사용 권한 없음" in message["reasoning_content"]
+
+
+def test_super_agent_answers_without_a_specialist_the_backend_skipped(audit):
+    # backend가 principal.agents를 보고 경영자문 위임을 건너뛰면, 답변은 끊기지 않고 건너뛴 사실만 보입니다.
+    body = ndjson(
+        group({"type": "delegation_skipped", "from": "group_super", "to": "advisory", "reason": "permission"}),
+        group({"type": "agent_token", "agent": "group_super", "text": "회의 기준만 정리했습니다."}),
+        group({"type": "agent_end", "agent": "group_super", "response": "회의 기준만 정리했습니다."}),
+        group({"type": "done"}),
+    )
+    backend = FakeBackend(body)
+    with make_client(backend, audit) as client:
+        resp = chat(client, "super-agent", "secretary@example.com")
+    message = resp.json()["choices"][0]["message"]
+    assert message["content"] == "회의 기준만 정리했습니다."
+    assert "그룹 경영자문 에이전트: 사용 권한 없음 → 건너뜀" in message["reasoning_content"]
+    assert backend.requests[0][1]["principal"]["agents"] == ["meeting", "news"]
 
 
 def test_relayed_delegation_is_checked_too(audit):
@@ -190,3 +209,45 @@ def test_build_request_keeps_recent_history_without_reasoning_blocks():
         "[이전 대화]\n사용자: 뉴로엣지 인수 검토해줘\nAI: 본실사 진입 권고\n\n[현재 요청]\nCFO 관점에서 다시"
     )
     assert build_request(messages[-1:]) == "CFO 관점에서 다시"
+
+
+def test_principal_is_signed_when_a_key_is_set():
+    import asyncio
+
+    import jwt as pyjwt
+
+    from shared.user_context import UserContext
+
+    seen = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(json.loads(request.content))
+        return httpx.Response(200, content=ndjson(group({"type": "agent_end", "agent": "meeting", "response": "ok"}),
+                                                  group({"type": "done"})))
+
+    key = "z" * 40
+    ctx = UserContext(email="staff@example.com", name="실무자", groups=frozenset({"staff"}), clearance=2,
+                      allowed_agents=frozenset({"meeting-agent"}))
+
+    def call(agent):
+        async def run():
+            return [e async for e in agent.run([{"role": "user", "content": "내 할 일"}], ctx)]
+
+        return asyncio.run(run())
+
+    call(RemoteAgent("meeting-agent", "회의지원", "http://backend", transport=httpx.MockTransport(handler), signing_key=key))
+    claims = pyjwt.decode(seen[0]["principal_token"], key, algorithms=["HS256"], audience="navitech-agents",
+                          issuer="navitech-gateway")
+    assert claims["sub"] == "staff@example.com" and claims["groups"] == ["staff"] and claims["clearance"] == 2
+    assert claims["agents"] == ["meeting"]
+    assert claims["exp"] - claims["iat"] == 1800
+    call(RemoteAgent("meeting-agent", "회의지원", "http://backend", transport=httpx.MockTransport(handler)))
+    assert "principal_token" not in seen[1]
+
+
+def test_every_agent_runs_on_the_group_system():
+    from agents.registry import build_registry
+
+    agents = build_registry({a: a for a in BACKEND_AGENTS}, "http://agents-group:8001")
+    assert set(agents) == {"super-agent", "advisory-agent", "news-agent", "meeting-agent"}
+    assert {a.base_url for a in agents.values()} == {"http://agents-group:8001"}

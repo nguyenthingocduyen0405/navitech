@@ -53,7 +53,11 @@ def main() -> None:
                     json={
                         "id": agent.id,
                         "name": agent.name,
-                        "meta": {"description": agent.description},
+                        "meta": {
+                            "description": agent.description,
+                            # 새 채팅 화면의 제안 (비우면 Open WebUI 기본 영어 제안이 보임)
+                            "suggestion_prompts": [{"title": [t, p], "content": p} for t, p in agent.suggestions],
+                        },
                         "params": {},
                         "access_grants": grants,
                     },

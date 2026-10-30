@@ -9,18 +9,25 @@ backend는 요청 하나를 받아 실행 lifecycle 이벤트를 NDJSON으로 �
     Workflow 결과의 회의 · 기사 id         → citation  (감사 로그)
     error                                  → text      (어느 Agent가 실패했는지 안내)
 
-Super Agent는 backend 안에서 전문 Agent에게 위임하므로, 위임 대상이 사용자가 직접 쓸 수
-없는 Agent이면 그 시점에 실행을 끊습니다 (Super Agent가 권한표를 우회하는 통로가 되지 않도록).
+Super Agent는 backend 안에서 전문 Agent에게 위임합니다. principal에 사용자가 쓸 수 있는 전문 Agent 목록(agents)을
+함께 보내므로, backend는 그 밖의 Agent에는 위임하지 않고 delegation_skipped를 보낸 뒤 나머지로 답합니다.
+그래도 권한 없는 Agent의 delegation_start가 오면 그 시점에 실행을 끊습니다 (Super Agent가 권한표를 우회하는 통로가 되지 않도록).
 
-요청에는 사용자(principal: email · 이름 · 그룹 · clearance)를 함께 보냅니다. backend의 Workflow Tool은
-이 값으로 자료 접근을 거릅니다 (회의 기록의 등급 필터, 작성자 기록). backend는 내부망에서만 접근됩니다.
+요청에는 사용자(principal: email · 이름 · 그룹 · clearance · 쓸 수 있는 전문 Agent)를 함께 보냅니다. backend의 Workflow Tool은
+이 값으로 자료 접근을 거릅니다 (회의 기록의 등급 필터, 작성자 기록). PRINCIPAL_SIGNING_KEY가 있으면 같은 값을
+HS256으로 서명한 principal_token도 보냅니다 — backend는 키가 있으면 서명된 값만 믿습니다 (내부망의 다른 컨테이너가
+사용자를 꾸며 보낼 수 없도록). backend는 내부망에서만 접근됩니다.
+
+Open WebUI의 Agent는 모두 Group Agent System으로 갑니다. K전자 Agent System은 Group Super의 A2A로만 닿습니다.
 """
 
 import json
 import re
+import time
 from collections.abc import AsyncIterator
 
 import httpx
+import jwt
 
 from agents.base import AgentEvent, last_user_text, require_access
 from shared.user_context import PermissionDenied, UserContext
@@ -32,6 +39,11 @@ BACKEND_AGENTS = {
     "news-agent": ("news", "/api/agents/news/run"),
     "meeting-agent": ("meeting", "/api/agents/meeting/run"),
 }
+
+# backend runtime/principal.py와 같은 값 (발급자 · 대상 · 유효 시간)
+PRINCIPAL_ISSUER = "navitech-gateway"
+PRINCIPAL_AUDIENCE = "navitech-agents"
+PRINCIPAL_TTL_SECONDS = 1800  # Super Agent → A2A → 위임까지 한 요청이 끝날 때까지
 
 # backend 전문 Agent id → permissions.yaml의 Agent id. Group과 K전자 모두 같은 id를 씁니다.
 SPECIALIST_PERMISSIONS = {"meeting": "meeting-agent", "news": "news-agent", "advisory": "advisory-agent"}
@@ -88,9 +100,24 @@ def build_request(messages: list[dict]) -> str:
     return "[이전 대화]\n" + "\n".join(history) + "\n\n[현재 요청]\n" + current
 
 
+def allowed_specialists(ctx: UserContext) -> list[str]:
+    """사용자가 쓸 수 있는 backend 전문 Agent id (Super Agent가 이 밖으로는 위임하지 않음)."""
+    return sorted(agent for agent, permission in SPECIALIST_PERMISSIONS.items() if ctx.can_use(permission))
+
+
 def principal(ctx: UserContext) -> dict:
     """backend에 보내는 사용자 정보. Agent(LLM)가 아니라 backend의 Tool이 읽습니다."""
-    return {"email": ctx.email, "name": ctx.name, "groups": sorted(ctx.groups), "clearance": ctx.clearance}
+    return {"email": ctx.email, "name": ctx.name, "groups": sorted(ctx.groups), "clearance": ctx.clearance,
+            "agents": allowed_specialists(ctx)}
+
+
+def principal_token(ctx: UserContext, key: str, now: float | None = None) -> str:
+    """principal을 HS256으로 서명한 토큰 (backend runtime/principal.verify가 검사)."""
+    issued = int(now if now is not None else time.time())
+    claims = {"iss": PRINCIPAL_ISSUER, "aud": PRINCIPAL_AUDIENCE, "iat": issued, "exp": issued + PRINCIPAL_TTL_SECONDS,
+              "sub": ctx.email, "name": ctx.name, "groups": sorted(ctx.groups), "clearance": ctx.clearance,
+              "agents": allowed_specialists(ctx)}
+    return jwt.encode(claims, key, algorithm="HS256")
 
 
 def agent_label(agent: str | None, system: str | None) -> str:
@@ -112,12 +139,20 @@ def cited_documents(event: dict) -> list[str]:
 
 
 class RemoteAgent:
-    def __init__(self, agent_id: str, label: str, base_url: str, transport: httpx.AsyncBaseTransport | None = None):
+    def __init__(
+        self,
+        agent_id: str,
+        label: str,
+        base_url: str,
+        transport: httpx.AsyncBaseTransport | None = None,
+        signing_key: str = "",
+    ):
         self.id = agent_id
         self.label = label
         self.backend_agent, self.path = BACKEND_AGENTS[agent_id]
         self.base_url = base_url.rstrip("/")
         self.transport = transport  # 테스트에서 가짜 backend로 교체
+        self.signing_key = signing_key
 
     async def run(
         self,
@@ -131,7 +166,10 @@ class RemoteAgent:
             async with httpx.AsyncClient(
                 base_url=self.base_url, timeout=BACKEND_TIMEOUT, transport=self.transport
             ) as client:
-                async with client.stream("POST", self.path, json={"request": request, "principal": principal(ctx)}) as resp:
+                body = {"request": request, "principal": principal(ctx)}
+                if self.signing_key:
+                    body["principal_token"] = principal_token(ctx, self.signing_key)
+                async with client.stream("POST", self.path, json=body) as resp:
                     if resp.status_code != 200:
                         await resp.aread()
                         yield AgentEvent.text(f"Agent backend가 요청을 거부했습니다 (HTTP {resp.status_code}).")
@@ -178,6 +216,8 @@ class RemoteAgent:
                     yield AgentEvent.status(f"{agent_label(target, system)}: 사용 권한 없음 → 중단")
                     raise PermissionDenied(permission)
                 status = f"{agent_label(event.get('from'), system)} → {agent_label(target, system)} 위임: {event.get('task', '')}"
+            elif kind == "delegation_skipped":
+                status = f"{agent_label(event.get('to'), system)}: 사용 권한 없음 → 건너뜀"
             elif kind == "delegation_end":
                 status = f"{agent_label(event.get('to'), system)} 보고: {_clip(event.get('response', ''), MAX_STATUS_CHARS)}"
             elif kind == "a2a_start":

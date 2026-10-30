@@ -125,6 +125,23 @@
       "implicitFlowEnabled": false,
       "directAccessGrantsEnabled": false,
       "serviceAccountsEnabled": true
+    },
+    {
+      "clientId": "voice-enroll",
+      "name": "Navitech 음성 등록",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${VOICE_OIDC_CLIENT_SECRET}",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "frontchannelLogout": false,
+      "redirectUris": ["${OPENWEBUI_PUBLIC_URL}/voice/callback"],
+      "webOrigins": ["${OPENWEBUI_PUBLIC_URL}"],
+      "attributes": {"post.logout.redirect.uris": "${OPENWEBUI_PUBLIC_URL}/voice/"}
     }
   ],
   "users": [

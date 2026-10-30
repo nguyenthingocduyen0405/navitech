@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>회의 업무 · Navitech</title>
+<link rel="icon" href="/static/favicon.png">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<link rel="stylesheet" href="style.css?v=6">
+<script src="app.js?v=6" defer></script>
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="/"><img src="/static/favicon.png" alt=""><span>Navitech</span></a>
+  <nav class="tabs" aria-label="회의 업무 메뉴">
+    <a href="#home" data-tab="home">홈</a>
+    <a href="#approvals" data-tab="approvals">검토 · 메일<span class="badge" id="badge"></span></a>
+    <a href="#items" data-tab="items">후속 조치</a>
+    <a href="#minutes" data-tab="minutes">회의록</a>
+  </nav>
+  <div class="spacer"></div>
+  <a class="btn ghost" href="/?model=meeting-agent">회의지원 Agent와 대화</a>
+  <span class="user" id="user"></span>
+</header>
+<main id="main" aria-live="polite"></main>
+<dialog id="dialog" aria-labelledby="dialog-title"></dialog>
+</body>
+</html>

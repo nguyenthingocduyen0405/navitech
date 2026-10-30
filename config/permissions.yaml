@@ -17,15 +17,30 @@ agents:
   super-agent:
     name: Super Agent
     description: 질문을 분석해 경영자문·뉴스·회의지원 Agent에 분배하고 결과를 종합합니다.
+    suggestions:
+      - {title: 브라이트셀 인수 검토, prompt: "브라이트셀 인수 건, 지난 회의 기준과 최근 뉴스를 반영해 CFO 관점으로 검토해 줘."}
+      - {title: 뉴로엣지 그룹 투자심의, prompt: "뉴로엣지 인수안을 그룹 투자심의에서 승인할지 판단해 줘."}
+      - {title: 계열사 리스크 요약, prompt: "최근 계열사 리스크 뉴스를 요약하고 그룹 차원에서 볼 점을 정리해 줘."}
   advisory-agent:
     name: 경영자문 Agent
     description: 공시·산업 리포트·사내 경영정보 기반 전략 자문 (CSO vs CFO 관점).
+    suggestions:
+      - {title: 브라이트셀 CFO 관점, prompt: "브라이트셀 인수안을 CFO 관점으로 검토해 줘."}
+      - {title: 브라이트셀 CTO 관점, prompt: "브라이트셀 인수안을 CTO 관점으로 검토해 줘."}
   news-agent:
     name: 뉴스 Briefing Agent
     description: 경영 관련 뉴스 수집·요약 및 So-What 도출.
+    suggestions:
+      - {title: 브라이트셀 리스크, prompt: "브라이트셀 관련 리스크 뉴스 정리해 줘."}
+      - {title: K바이오 핵심인력, prompt: "K바이오 핵심인력 이탈 뉴스와 영향을 알려 줘."}
+      - {title: K물산 노사 동향, prompt: "K물산 노조 파업 예고 관련 리스크를 정리해 줘."}
   meeting-agent:
     name: 회의지원 Agent
     description: 회의록 요약, Action Item 추출·추적, 사전 참고자료 제공.
+    suggestions:
+      - {title: 기한 임박 업무, prompt: "기한이 지났거나 이번 주 마감인 Action Item 보여 줘."}
+      - {title: 보낸 메일, prompt: "회의지원 Agent가 최근에 보낸 메일 보여 줘."}
+      - {title: 지난 투심위 기준, prompt: "9월 그룹 투자심의위원회 사전회의에서 정한 기준을 알려 줘."}
 
 groups:
   executive:

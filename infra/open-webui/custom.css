@@ -300,3 +300,9 @@ kbd,
   font-size: 1rem !important;
   line-height: 1.6 !important;
 }
+
+/* Agent 전환은 왼쪽 메뉴의 고정 목록(DEFAULT_PINNED_MODELS)에서 합니다: 입력창 · 상단의 모델 선택 버튼은 숨김.
+   대화 중인 Agent는 각 답변 위의 이름으로 보입니다. */
+[id^="model-selector-"][id$="-button"] {
+  display: none !important;
+}

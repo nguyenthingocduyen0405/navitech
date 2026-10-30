@@ -10,6 +10,7 @@ class AgentSpec:
     id: str
     name: str
     description: str
+    suggestions: tuple[tuple[str, str], ...] = ()  # (제목, 보낼 문장): Open WebUI 새 채팅의 제안 (sync_openwebui)
 
 
 @dataclass(frozen=True)
@@ -29,7 +30,8 @@ class Permissions:
     def load(cls, path: str | Path) -> "Permissions":
         raw = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
         agents = {
-            agent_id: AgentSpec(agent_id, spec["name"], spec.get("description", ""))
+            agent_id: AgentSpec(agent_id, spec["name"], spec.get("description", ""),
+                                tuple((s["title"], s["prompt"]) for s in spec.get("suggestions") or ()))
             for agent_id, spec in raw["agents"].items()
         }
         groups = {}

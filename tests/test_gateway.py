@@ -1,12 +1,14 @@
+import asyncio
 import time
 from pathlib import Path
 
+import httpx
 import jwt
 import pytest
 from fastapi.testclient import TestClient
 
 from gateway.audit import MemoryAuditLog
-from gateway.directory import DirectoryUser
+from gateway.directory import DirectoryPerson, DirectoryUser, KeycloakDirectory, name_keys
 from gateway.main import create_app
 from gateway.permissions import Permissions
 from gateway.settings import Settings
@@ -27,6 +29,10 @@ USERS = {
 class FakeDirectory:
     async def lookup(self, email):
         return USERS.get(email)
+
+    async def search_people(self, name):
+        people = [DirectoryPerson("이서연", "seoyeon@example.com", "kc-1"), DirectoryPerson("박지훈", "jihoon@example.com", "kc-2")]
+        return [p for p in people if p.name == name.replace(" ", "")]
 
     async def close(self):
         pass
@@ -168,3 +174,59 @@ def test_streaming_response_is_openai_sse(client):
     lines = [line for line in resp.text.splitlines() if line.startswith("data: ")]
     assert lines[-1] == "data: [DONE]"
     assert '"reasoning_content"' in resp.text and '"content"' in resp.text
+
+
+def test_internal_directory_lookup_needs_the_internal_key(audit):
+    settings = Settings(
+        backend_api_key=API_KEY,
+        owui_jwt_secret=JWT_SECRET,
+        permissions_file=str(PERMISSIONS_FILE),
+        app_database_url="unused",
+        keycloak_url="unused",
+        keycloak_realm="capstone",
+        keycloak_client_id="gateway",
+        keycloak_client_secret="unused",
+        internal_api_key="i" * 40,
+    )
+    with TestClient(create_app(settings, directory=FakeDirectory(), audit=audit)) as c:
+        url = "/internal/directory/people"
+        assert c.get(url, params={"name": "이서연"}).status_code == 401
+        assert c.get(url, params={"name": "이서연"}, headers={"Authorization": f"Bearer {API_KEY}"}).status_code == 401
+        found = c.get(url, params={"name": "이 서연"}, headers={"Authorization": "Bearer " + "i" * 40}).json()
+        assert found == {"people": [{"name": "이서연", "email": "seoyeon@example.com", "sub": "kc-1"}]}
+
+
+def test_mail_recipients_come_only_from_accounts_an_admin_assigned():
+    # The meeting agent mails what this finds without approval: a self-registered account that took an
+    # executive's name (no group) must not be found.
+    users = [
+        {"id": "kc-1", "username": "seoyeon", "firstName": "서연", "lastName": "이", "email": "seoyeon@example.com", "enabled": True},
+        {"id": "kc-2", "username": "imposter", "firstName": "지훈", "lastName": "박", "email": "attacker@example.net", "enabled": True},
+    ]
+    groups = {"kc-1": [{"name": "executive"}], "kc-2": []}
+
+    def keycloak(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/token"):
+            return httpx.Response(200, json={"access_token": "t", "expires_in": 300})
+        if request.url.path.endswith("/groups"):
+            return httpx.Response(200, json=groups[request.url.path.split("/")[-2]])
+        return httpx.Response(200, json=users)
+
+    async def search(name):
+        directory = KeycloakDirectory("http://kc", "capstone", "gateway", "x", transport=httpx.MockTransport(keycloak))
+        try:
+            return await directory.search_people(name)
+        finally:
+            await directory.close()
+
+    assert asyncio.run(search("이서연")) == [DirectoryPerson("이 서연", "seoyeon@example.com", "kc-1")]
+    assert asyncio.run(search("박지훈")) == []
+
+
+def test_internal_api_is_closed_without_a_key(client):
+    assert client.get("/internal/directory/people", params={"name": "이서연"}).status_code == 404
+
+
+def test_people_are_found_by_korean_or_western_name_order():
+    keys = name_keys("한율", "정", "hy0126")
+    assert {"정한율", "한율정", "hy0126"} == keys

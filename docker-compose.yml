@@ -21,6 +21,28 @@ x-llm-env: &llm-env
   OPENAI_MODEL: ${OPENAI_MODEL:-}
   OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
 
+# 두 Agent System의 회의 기능 공통 설정 (agent-backend/backend/app/library/workflows/)
+x-meetings-env: &meetings-env
+  # gateway가 서명한 요청자만 믿음 (runtime/principal.py). Group → K A2A도 같은 서명을 그대로 전달
+  PRINCIPAL_SIGNING_KEY: ${PRINCIPAL_SIGNING_KEY}
+  # 회의록 확정 · 정정, Compliance 검토, 메일 발송 승인, 업무 요청 접수: 회의의 의장 · 간사 + 이 그룹
+  MEETINGS_CONFIRM_GROUPS: ${MEETINGS_CONFIRM_GROUPS:-secretary,executive}
+  # 녹음 transcript: speech-service가 준 id로 가져와 1년 보관 (transcripts.py)
+  SPEECH_SERVICE_URL: http://speech-service:8000
+  SPEECH_API_KEY: ${SPEECH_API_KEY}
+  MEETINGS_TRANSCRIPT_RETENTION_DAYS: ${MEETINGS_TRANSCRIPT_RETENTION_DAYS:-365}
+  # 메일 받는 사람의 등록 이메일 (Keycloak) — gateway의 내부 API
+  DIRECTORY_URL: http://gateway:8000/internal/directory/people
+  INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+  # 승인된 메일 발송 · 매일 09:00 기한 알림 · 만료 transcript 삭제 (jobs.py). SMTP_HOST가 비면 승인된 메일은 대기
+  MEETINGS_BACKGROUND_JOBS: "1"
+  SMTP_HOST: ${SMTP_HOST:-}
+  SMTP_PORT: ${SMTP_PORT:-587}
+  SMTP_SECURITY: ${SMTP_SECURITY:-starttls}
+  SMTP_USERNAME: ${SMTP_USERNAME:-}
+  SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+  SMTP_FROM: ${SMTP_FROM:-}
+
 services:
   postgres:
     image: pgvector/pgvector:pg17
@@ -67,6 +89,7 @@ services:
       ADMIN_PORTAL_PUBLIC_URL: ${ADMIN_PORTAL_PUBLIC_URL}
       OPENWEBUI_OIDC_CLIENT_SECRET: ${OPENWEBUI_OIDC_CLIENT_SECRET}
       GATEWAY_KC_CLIENT_SECRET: ${GATEWAY_KC_CLIENT_SECRET}
+      VOICE_OIDC_CLIENT_SECRET: ${VOICE_OIDC_CLIENT_SECRET}
       DEMO_USER_PASSWORD: ${DEMO_USER_PASSWORD}
     volumes:
       - ./infra/keycloak/import:/opt/keycloak/data/import:ro
@@ -93,7 +116,7 @@ services:
     <<: *agent-backend
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
     environment:
-      <<: *llm-env
+      <<: [*llm-env, *meetings-env]
       # 회의 저장소: DB agents의 schema kelec (role agents_k는 Group schema에 접근 불가). principal 없는 요청은 열람 불가(0)
       MEETINGS_DATABASE_URL: postgresql://agents_k:${AGENTS_K_DB_PASSWORD}@postgres:5432/agents
       MEETINGS_ANONYMOUS_CLEARANCE: "0"
@@ -106,7 +129,7 @@ services:
     <<: *agent-backend
     command: ["uvicorn", "app.systems.group.app:app", "--host", "0.0.0.0", "--port", "8001"]
     environment:
-      <<: *llm-env
+      <<: [*llm-env, *meetings-env]
       K_ELECTRONICS_A2A_URL: http://agents-k:8000/api/a2a/run
       MEETINGS_DATABASE_URL: postgresql://agents_group:${AGENTS_GROUP_DB_PASSWORD}@postgres:5432/agents
       MEETINGS_ANONYMOUS_CLEARANCE: "0"
@@ -149,6 +172,8 @@ services:
       OIDC_CLIENT_SECRET: ${VOICE_OIDC_CLIENT_SECRET}
       SESSION_SECRET: ${VOICE_SESSION_SECRET}
       VOICEPRINT_KEY: ${VOICEPRINT_KEY}   # voiceprint 암호화 키 (개인정보의 안전성 확보조치 기준 제7조)
+      # 회의 transcript를 id로 보관하는 기간 (회의지원 Agent가 가져가 자기 저장소에 따로 보관)
+      TRANSCRIPT_RETENTION_DAYS: ${TRANSCRIPT_RETENTION_DAYS:-30}
     volumes:
       - ./infra/speech-service/models:/models:ro   # infra/speech-service/download_models.sh
     ports:
@@ -161,8 +186,10 @@ services:
     build: .
     restart: unless-stopped
     environment:
-      # 실제 Agent: Group Agent System. 비우면 mock Agent (agents/registry.py)
+      # 실제 Agent: Group Agent System (K전자는 Group Super의 A2A로만). 비우면 mock Agent (agents/registry.py)
       AGENT_BACKEND_URL: http://agents-group:8001
+      PRINCIPAL_SIGNING_KEY: ${PRINCIPAL_SIGNING_KEY}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}   # /internal/directory/people (Agent backend의 메일 주소 조회)
       BACKEND_API_KEY: ${BACKEND_API_KEY}
       OWUI_FORWARD_JWT_SECRET: ${OWUI_FORWARD_JWT_SECRET}
       PERMISSIONS_FILE: /app/config/permissions.yaml
@@ -179,6 +206,8 @@ services:
       postgres:
         condition: service_healthy
       agents-group:
+        condition: service_started
+      agents-k:
         condition: service_started
 
   open-webui:
@@ -198,6 +227,10 @@ services:
       ENABLE_OPENAI_API: "true"
       OPENAI_API_BASE_URL: http://gateway:8000/v1
       OPENAI_API_KEY: ${BACKEND_API_KEY}
+      # Agent 전환은 왼쪽 메뉴에서: 각 Agent를 사이드바에 고정 (권한 없는 Agent는 Open WebUI가 목록에서 뺌)
+      DEFAULT_PINNED_MODELS: super-agent,news-agent,advisory-agent,meeting-agent
+      # 채팅을 화면 가운데 좁은 칸(58rem)이 아니라 전체 폭으로 — 사용자가 설정 > 인터페이스에서 끌 수 있음
+      DEFAULT_INTERFACE_SETTINGS: '{"widescreenMode": true}'
       ENABLE_DIRECT_CONNECTIONS: "false"
       ENABLE_EVALUATION_ARENA_MODELS: "false"
       # 관리자도 소속 그룹이 허용한 Agent만 보입니다 — gateway의 검사 규칙과 동일
@@ -254,6 +287,8 @@ services:
       - owui-data:/app/backend/data
       # 시작 시 /static/custom.css로 복사됨: 글꼴·글자 크기·색상 (infra/open-webui/custom.css 참고)
       - ./infra/open-webui/custom.css:/app/build/static/custom.css:ro
+      # 왼쪽 메뉴에 '회의 업무'(/meetings/) 링크를 더함 (Open WebUI의 빈 훅 loader.js를 덮어씀)
+      - ./infra/open-webui/loader.js:/app/build/static/loader.js:ro
       - ./infra/open-webui/branding:/branding:ro
     ports:
       - "127.0.0.1:3000:8080"
@@ -264,6 +299,21 @@ services:
         condition: service_healthy
       gateway:
         condition: service_started
+
+  retention:
+    # Open WebUI가 STT 후에도 보관하는 회의 녹음(wav · mp3 · json)을 보존 기간이 지나면 삭제 (infra/retention)
+    build: ./infra/retention
+    restart: unless-stopped
+    mem_limit: 128m
+    environment:
+      OPENWEBUI_DATABASE_URL: postgresql://openwebui:${OPENWEBUI_DB_PASSWORD}@postgres:5432/openwebui
+      AUDIO_RETENTION_DAYS: ${AUDIO_RETENTION_DAYS:-30}
+      INTERVAL_HOURS: "6"
+    volumes:
+      - owui-data:/app/backend/data
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   admin-portal:
     # 사용자 · 권한 관리 페이지. 정적 파일만 제공하며, 로그인한 관리자 본인의 토큰으로 Keycloak Admin API를 호출합니다.

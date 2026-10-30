@@ -16,6 +16,8 @@
   voiceprint는 AES-256-GCM으로 암호화해 저장한다(개인정보의 안전성 확보조치 기준 제7조). 키는 `.env`의 `VOICEPRINT_KEY`(`openssl rand -base64 32`)에만 있고, 키가 없으면 서비스가 시작되지 않는다. 키를 잃으면 전원 재등록.
   `/voice/api/test`는 "본인 목소리로 인식되는가"만 답한다 (다른 사람 이름·점수는 반환하지 않음).
 - `/v1`은 docker 네트워크 안에서만 (nginx는 `/voice/`만 노출). 인증: `Bearer SPEECH_API_KEY`.
+- 화자 라벨이 붙은 회의 transcript는 `transcripts` 테이블에 `TRANSCRIPT_RETENTION_DAYS`(기본 30일) 동안 보관하고, 텍스트 첫 줄에 `[transcript_id: TR-…]`를 붙인다.
+  회의지원 Agent가 이 id로 `GET /internal/transcripts/{id}`(같은 키, 내부망)에서 발언 단위 결과를 가져가 자기 저장소에 따로 보관한다. 만료분은 매시간 삭제.
 
 설치: `./download_models.sh` (모델 ~200MB → `models/`, 읽기 전용 마운트). 임베딩 모델을 바꾸면 기존 voiceprint는 재등록 대상(`outdated`).
 

@@ -318,17 +318,23 @@ def transcribe(data: bytes, filename: str, voiceprints: list[Voiceprint], langua
 
     # Output lines: one per speaker change (turns split only by TURN_MAX_SECONDS are joined again).
     turns: list[dict] = []
+    scores: list[list[float]] = []  # voiceprint scores of each line's segments
     for g in groups:
         if not g.text:
             continue
         if turns and turns[-1]["speaker"] == g.speaker:
             turns[-1]["text"] += " " + g.text
             turns[-1]["end"] = g.end
+            scores[-1] += [s.score for s in g.segments]
         else:
             turns.append({"start": g.start, "end": g.end, "speaker": g.speaker, "text": g.text})
+            scores.append([s.score for s in g.segments])
+    for t, sc in zip(turns, scores):
+        t["score"] = round(float(np.mean(sc)), 3) if sc else None
     speakers = sorted({t["speaker"] for t in turns})
 
-    if len(speakers) <= 1 and duration <= DICTATION_MAX_SECONDS:
+    labelled = not (len(speakers) <= 1 and duration <= DICTATION_MAX_SECONDS)
+    if not labelled:
         text = " ".join(t["text"] for t in turns)
     else:
         lines = ["(화자 자동 식별 transcript — '미확인 화자'는 등록되지 않은 목소리이거나 식별 신뢰도가 낮은 구간입니다)"]
@@ -338,6 +344,7 @@ def transcribe(data: bytes, filename: str, voiceprints: list[Voiceprint], langua
     log.info("transcribed %.1fs audio, engine=%s, %d segments, speakers=%s", duration, engine, len(segments), speakers)
     return {
         "text": text,
+        "labelled": labelled,  # a meeting transcript (speaker lines), not chat-mic dictation
         "duration": round(duration, 2),
         "engine": engine,
         "speakers": speakers,

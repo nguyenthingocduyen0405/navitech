@@ -1,7 +1,9 @@
 """speech-service — speaker-labelled STT for Open WebUI + voice enrollment page.
 
     POST /v1/audio/transcriptions   OpenAI-compatible; Open WebUI's STT engine "openai" points here
-                                     (internal network only, Bearer SPEECH_API_KEY)
+                                     (internal network only, Bearer SPEECH_API_KEY). A meeting transcript
+                                     (speaker lines) is kept under an id shown on its first line
+    GET  /internal/transcripts/{id}  that transcript for the Meeting Agent (internal network only, same key)
     /voice/                          enrollment page behind Keycloak login (nginx routes /voice/ here)
     /voice/api/me | enroll | test    the page's API (session cookie)
 
@@ -15,7 +17,10 @@ import base64
 import json
 import logging
 import os
+import re
 import secrets
+import threading
+import time
 from itertools import combinations
 from pathlib import Path
 from urllib.parse import urlencode
@@ -45,6 +50,8 @@ ENROLL_MIN_SPEECH_SECONDS = 5.0
 # Two samples of one person below this score: noise, a different reader, or a bad mic.
 ENROLL_CONSISTENCY = float(os.environ.get("ENROLL_CONSISTENCY", "0.55"))
 STATIC = Path(__file__).parent / "static"
+TRANSCRIPT_ID = re.compile(r"^TR-\d{8}-[0-9A-F]{6}$")
+PURGE_INTERVAL_SECONDS = 3600
 
 app = FastAPI(title="speech-service", docs_url=None, redoc_url=None, openapi_url=None)
 app.add_middleware(
@@ -62,7 +69,24 @@ app.add_middleware(
 def startup() -> None:
     store.init()
     speech.extractor()  # load the embedding model before the first request
+    threading.Thread(target=_purge_loop, name="transcript-purge", daemon=True).start()
     log.info("ready: stt_engine=%s, voiceprints=%d", speech.stt_engine(), store.count(speech.model_name()))
+
+
+def _purge_loop() -> None:
+    """Meeting transcripts past TRANSCRIPT_RETENTION_DAYS are deleted (the Meeting Agent keeps its own copy)."""
+    while True:
+        try:
+            purged = store.purge_transcripts()
+            if purged:
+                log.info("purged %d expired transcripts", purged)
+        except Exception:
+            log.exception("transcript purge failed")
+        time.sleep(PURGE_INTERVAL_SECONDS)
+
+
+def _authorized(request: Request) -> bool:
+    return not API_KEY or secrets.compare_digest(request.headers.get("authorization", ""), f"Bearer {API_KEY}")
 
 
 @app.get("/health")
@@ -82,14 +106,36 @@ async def transcriptions(
     model: str = Form(""),
     language: str | None = Form(None),
 ):
-    if API_KEY and request.headers.get("authorization", "") != f"Bearer {API_KEY}":
+    if not _authorized(request):
         return JSONResponse({"error": {"message": "invalid API key"}}, status_code=401)
     data = await file.read()
     try:
         voiceprints = store.all_voiceprints(speech.model_name())
-        return await run_in_threadpool(speech.transcribe, data, file.filename or "audio", voiceprints, language)
+        result = await run_in_threadpool(speech.transcribe, data, file.filename or "audio", voiceprints, language)
     except speech.AudioError as e:
         return JSONResponse({"error": {"message": str(e)}}, status_code=400)
+    if result.pop("labelled", False):
+        try:
+            tid = store.save_transcript(file.filename or "audio", result["duration"], result["engine"], result["turns"])
+        except Exception:  # the transcript text still reaches the chat; only the hand-off id is missing
+            log.exception("could not keep the transcript")
+        else:
+            result["transcript_id"] = tid
+            result["text"] = f"[transcript_id: {tid}]\n" + result["text"]
+    return result
+
+
+@app.get("/internal/transcripts/{tid}")
+def transcript(tid: str, request: Request):
+    """A kept meeting transcript, for the Meeting Agent (internal network only; nginx exposes /voice/ only)."""
+    if not _authorized(request):
+        return JSONResponse({"error": "invalid API key"}, status_code=401)
+    if not TRANSCRIPT_ID.match(tid):
+        return JSONResponse({"error": "not found"}, status_code=404)
+    found = store.get_transcript(tid)
+    if found is None:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return found
 
 
 # ---------------------------------------------------------------------------

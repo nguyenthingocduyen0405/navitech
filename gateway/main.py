@@ -14,6 +14,7 @@ import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+import httpx
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
@@ -21,6 +22,7 @@ from agents.base import Agent, AgentEvent, last_user_text
 from agents.registry import build_registry
 from gateway.audit import AuditEntry, AuditLog, PostgresAuditLog
 from gateway.auth import AuthError, build_user_context, check_api_key, verify_openwebui_jwt
+from gateway.desk import register_desk
 from gateway.directory import Directory, DirectoryUnavailable, KeycloakDirectory
 from gateway.permissions import Permissions
 from gateway.settings import Settings
@@ -90,11 +92,14 @@ def create_app(
     directory: Directory | None = None,
     audit: AuditLog | None = None,
     agents: dict[str, Agent] | None = None,
+    desk_transport: httpx.AsyncBaseTransport | None = None,
 ) -> FastAPI:
     settings = settings or Settings.from_env()
     permissions = permissions or Permissions.load(settings.permissions_file)
     agents = agents or build_registry(
-        {a.id: a.name for a in permissions.agents.values()}, settings.agent_backend_url
+        {a.id: a.name for a in permissions.agents.values()},
+        settings.agent_backend_url,
+        settings.principal_signing_key,
     )
     mismatch = set(permissions.agents) ^ set(agents)
     if mismatch:
@@ -125,6 +130,19 @@ def create_app(
     @app.get("/health")
     async def health():
         return {"status": "ok"}
+
+    @app.get("/internal/directory/people")
+    async def directory_people(request: Request, name: str = ""):
+        # Agent backend가 회의 메일 받는 사람의 등록 이메일을 찾을 때 씁니다 (내부망, INTERNAL_API_KEY).
+        if not settings.internal_api_key:
+            return _error(404, "Not Found")
+        check_api_key(request.headers.get("authorization"), settings.internal_api_key)
+        try:
+            people = await directory.search_people(name)
+        except DirectoryUnavailable:
+            log.exception("사용자 디렉터리 조회 실패")
+            return _error(503, "사용자 디렉터리를 조회할 수 없습니다.")
+        return {"people": [{"name": p.name, "email": p.email, "sub": p.sub} for p in people]}
 
     @app.get("/v1/models")
     async def list_models(request: Request):
@@ -216,4 +234,5 @@ def create_app(
         await audit.set_documents(entry_id, cited)
         return completion.full("".join(text), "\n".join(reasoning))
 
+    register_desk(app, settings, directory, permissions, audit, transport=desk_transport)
     return app
