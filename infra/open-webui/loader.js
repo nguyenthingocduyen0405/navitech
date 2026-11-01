@@ -370,11 +370,57 @@
       try {
         const r = await realFetch(`/api/v1/files/${encodeURIComponent(id)}/process/status`, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
         const d = r.ok ? await r.json() : null;
-        if (d && d.status === 'completed') upEnd(up, '녹음을 글로 옮겼습니다', `${clock(Date.now() - started)} 걸림 · 첨부된 파일과 함께 보내 주세요`, 'done', 5000);
+        if (d && d.status === 'completed') {
+          if (!(inMeetingChat() && askMinutes(up))) {
+            upEnd(up, '녹음을 글로 옮겼습니다', `${clock(Date.now() - started)} 걸림 · 할 일을 적어 첨부와 함께 보내 주세요 (빈 메시지로는 내용이 전달되지 않음)`, 'done', 7000);
+          }
+        }
         else if (d && d.status === 'failed') upEnd(up, '녹음을 글로 옮기지 못했습니다', String(d.error || '파일 형식을 확인하고 다시 올려 주세요').slice(0, 160), 'error', 9000);
         else if (!r.ok && r.status !== 429) upEnd(up, '진행 상황을 확인할 수 없습니다', '첨부 칩이 멈추지 않으면 다시 올려 주세요', 'error', 6000);
       } catch { /* 다음 번에 다시 확인 */ } finally { polling = false; }
     }, 1000);
+  }
+
+  // 회의지원 Agent 채팅에서 올린 녹음은 글로 옮겨지자마자 회의록 초안을 요청한다 (마이크 녹음과 같게).
+  // 첨부한 채로 문장을 넣어 보내야 Open WebUI가 transcript를 요청에 붙인다 (빈 메시지면 붙이지 않음).
+  // Open WebUI가 첨부 칩의 처리 중 표시를 끄기 전에 보내면 무시되므로, 칩이 멈춘 뒤 보내고 칩이 남아 있으면 다시 보낸다.
+  const attachedChip = (name) => {
+    const box = document.getElementById('message-input-container');
+    return box ? [...box.querySelectorAll('button')].find((b) => b.textContent.includes(name)) : null;
+  };
+  function askMinutes(up) {
+    if (!document.getElementById('chat-input') || !attachedChip(up.name)) return false;
+    const head = `회의 녹음 파일을 올렸습니다. 첨부한 녹음의 transcript로 회의록 초안을 작성해 주세요. 녹음 파일: ${up.name}`;
+    clearInterval(up.timer);
+    upPill(up, '회의록 초안 작성을 요청하는 중', up.name);
+    let steps = 0;
+    let tries = 0;
+    let clickedAt = 0;
+    const step = setInterval(() => {
+      const input = document.getElementById('chat-input');
+      const chip = attachedChip(up.name);
+      if (clickedAt && !chip) { // 보내면 Open WebUI가 입력창의 첨부를 비운다
+        clearInterval(step);
+        upEnd(up, '회의록 초안 작성을 요청했습니다', '회의지원 Agent가 transcript로 초안을 저장합니다', 'done', 4000);
+        return;
+      }
+      const stuck = ++steps > 240 || tries >= 6 || !chip || !input || !input.editor;
+      if (stuck && (!clickedAt || Date.now() - clickedAt > 2500)) {
+        clearInterval(step);
+        upEnd(up, '자동으로 보내지 못했습니다', '입력창의 녹음 첨부를 확인하고 "회의록 초안을 작성해 줘"와 함께 보내 주세요', 'error', 9000);
+        return;
+      }
+      if (stuck || (clickedAt && Date.now() - clickedAt < 2500)) return;
+      const button = document.getElementById('send-message-button');
+      if (!button || button.disabled || chip.querySelector('[class*="spin"]')) return; // 아직 처리 중
+      if (!input.innerText.includes(head)) {
+        input.editor.commands.insertContentAt(0, [{ type: 'paragraph', content: [{ type: 'text', text: head }] }]);
+      }
+      tries += 1;
+      clickedAt = Date.now();
+      button.click();
+    }, 250);
+    return true;
   }
 
   const realFetch = window.fetch.bind(window);
@@ -384,7 +430,7 @@
     const file = init && init.method === 'POST' && /\/api\/v1\/files\/(\?|$)/.test(url) && body instanceof FormData ? body.get('file') : null;
     if (!(file instanceof File) || !(/^(audio|video)\//.test(file.type) || AUDIO_FILE.test(file.name))) return realFetch(input, init);
     style();
-    const up = { started: Date.now(), duration: null };
+    const up = { started: Date.now(), duration: null, name: file.name };
     uploads.add(up);
     durationOf(file).then((d) => { up.duration = d; });
     upPill(up, '녹음 파일을 올리는 중', `${file.name} · ${(file.size / 1048576).toFixed(file.size < 10485760 ? 1 : 0)}MB`);

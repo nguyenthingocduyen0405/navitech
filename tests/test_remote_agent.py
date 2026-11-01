@@ -222,6 +222,17 @@ def test_truncated_stream_is_reported(audit):
     assert "완료 신호 없이" in resp.json()["choices"][0]["message"]["content"]
 
 
+def test_files_without_a_message_are_answered_without_the_backend(audit):
+    backend = FakeBackend()
+    sent = '<attached_files>\n<file type="file" id="f1" url="f1" content_type="audio/x-m4a" name="캡스톤_1030.m4a"/>\n</attached_files>\n\n'
+    with make_client(backend, audit) as client:
+        resp = chat(client, "meeting-agent", "ceo@example.com", text=sent)
+        answer = resp.json()["choices"][0]["message"]["content"]
+        assert "캡스톤_1030.m4a" in answer and "함께 적어" in answer and backend.requests == []
+        chat(client, "meeting-agent", "ceo@example.com", text=sent + "회의록 초안을 작성해 줘")
+    assert len(backend.requests) == 1  # 글이 있으면 그대로 backend로
+
+
 def test_build_request_keeps_recent_history_without_reasoning_blocks():
     messages = [
         {"role": "system", "content": "무시"},

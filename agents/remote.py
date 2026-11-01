@@ -72,6 +72,8 @@ MAX_HISTORY_CHARS = 1500
 BACKEND_TIMEOUT = httpx.Timeout(connect=5.0, read=600.0, write=10.0, pool=5.0)
 
 _DETAILS = re.compile(r"<details\b.*?</details>", re.DOTALL)
+# Open WebUI가 첨부 파일을 알리는 태그 (내용은 메시지에 글이 있을 때만 RAG 틀로 따로 붙음)
+_ATTACHED = re.compile(r"<attached_files>.*?</attached_files>\s*", re.DOTALL)
 
 # 답변 끝의 카드 블록 (loader.js가 그림). 다음 요청의 대화 맥락에서는 뺍니다.
 CARD_FENCE = "navitech"
@@ -109,6 +111,14 @@ def build_request(messages: list[dict]) -> str:
     if not history:
         return current
     return "[이전 대화]\n" + "\n".join(history) + "\n\n[현재 요청]\n" + current
+
+
+def attachments_only(messages: list[dict]) -> list[str]:
+    """글 없이 파일만 보낸 마지막 메시지의 파일 이름들. Open WebUI는 이때 파일 내용을 넘기지 않는다."""
+    text = last_user_text(messages)
+    if "<attached_files>" not in text or _ATTACHED.sub("", text).strip():
+        return []
+    return re.findall(r'name="([^"]*)"', text) or ["첨부 파일"]
 
 
 def allowed_specialists(ctx: UserContext) -> list[str]:
@@ -220,6 +230,13 @@ class RemoteAgent:
         task: str | None = None,
     ) -> AsyncIterator[AgentEvent]:
         require_access(ctx, self.id)
+        files = [] if task else attachments_only(messages)
+        if files:
+            yield AgentEvent.text(
+                f"첨부한 파일({', '.join(files)})만 보내면 파일 내용이 Agent에게 전달되지 않습니다. "
+                "무엇을 할지 함께 적어 다시 보내 주세요. 예: \"이 녹음으로 회의록 초안을 작성해 줘\""
+            )
+            return
         request = task or build_request(messages)
         try:
             async with httpx.AsyncClient(

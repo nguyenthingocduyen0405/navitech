@@ -288,6 +288,13 @@ services:
       # 올린 녹음을 그대로 speech-service에 넘긴다. 켜지 않으면 Open WebUI가 m4a → mp3 → 32kbps mp3로 두 번 다시 인코딩해
       # 1시간 녹음에 40초쯤 더 걸리고 음질이 떨어져 화자 구분이 나빠진다 (speech-service가 어떤 형식이든 ffmpeg로 읽음)
       BYPASS_PYDUB_PREPROCESSING: "true"
+      # 첨부 파일 내용을 요청에 붙이는 틀. 기본 틀은 문장마다 [id] 출처를 달게 해 회의록 줄마다 파일 이름이 붙는다
+      RAG_TEMPLATE: |
+        [첨부 파일 내용]
+        {{CONTEXT}}
+
+        [요청]
+        {{QUERY}}
     volumes:
       - owui-data:/app/backend/data
       # 시작 시 /static/custom.css로 복사됨: 글꼴·글자 크기·색상 (infra/open-webui/custom.css 참고)
