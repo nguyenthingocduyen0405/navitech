@@ -83,7 +83,7 @@
         <dt>수집 항목</dt><dd>목소리 특징값(voiceprint, 숫자 벡터). 녹음 원본은 특징값 계산 직후 폐기되며 저장하지 않습니다.</dd>
         <dt>이용 목적</dt><dd>회의 녹음 transcript와 회의록에서 발언자 식별</dd>
         <dt>보유 기간</dt><dd>본인이 이 페이지에서 삭제할 때까지 (퇴사 시 삭제)</dd>
-        <dt>동의 거부</dt><dd>거부할 수 있으며, 거부 시 회의록에 '미확인 화자'로 표시됩니다.</dd>
+        <dt>동의 거부</dt><dd>거부할 수 있으며, 거부 시 회의록에 이름 대신 '화자 A'처럼 표시됩니다.</dd>
       </dl>
     </div>
     <label class="check"><input type="checkbox" id="consent"> 위 내용을 확인했으며 목소리 특징값의 수집·이용에 동의합니다.</label>
@@ -217,7 +217,7 @@ async function loadStatus() {
     const del = document.createElement("button");
     del.className = "danger"; del.textContent = "내 음성 정보 삭제";
     del.onclick = async () => {
-      if (!confirm("등록된 목소리 특징값을 삭제할까요? 이후 회의록에는 '미확인 화자'로 표시됩니다.")) return;
+      if (!confirm("등록된 목소리 특징값을 삭제할까요? 이후 회의록에는 이름 대신 '화자 A'처럼 표시됩니다.")) return;
       await api("enroll", { method: "DELETE" });
       await loadStatus();
     };
@@ -229,7 +229,7 @@ async function loadStatus() {
     n.className = "notice warn";
     n.textContent = me.voiceprint && me.voiceprint.outdated
       ? "인식 모델이 바뀌어 다시 등록이 필요합니다."
-      : "아직 등록하지 않았습니다. 등록하지 않으면 회의록에 '미확인 화자'로 표시됩니다.";
+      : "아직 등록하지 않았습니다. 등록하지 않으면 회의록에 이름 대신 '화자 A'처럼 표시됩니다.";
     body.appendChild(n);
     $("enroll-title").textContent = "목소리 등록";
     $("test-card").hidden = true;

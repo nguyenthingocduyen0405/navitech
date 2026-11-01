@@ -165,6 +165,8 @@ services:
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       GROQ_STT_MODEL: ${GROQ_STT_MODEL:-whisper-large-v3-turbo}
       VOICE_MATCH_THRESHOLD: ${VOICE_MATCH_THRESHOLD:-0.5}
+      # 4 vCPU를 다 써서 빨리 끝낸다 (2 → 4: 57분 회의 기준 약 30% 단축). 프로세스는 nice 10이라 다른 서비스가 먼저
+      NUM_THREADS: ${SPEECH_THREADS:-4}
       PUBLIC_BASE_URL: ${OPENWEBUI_PUBLIC_URL}/voice
       OIDC_PUBLIC_ISSUER: ${KEYCLOAK_PUBLIC_URL}/realms/capstone
       OIDC_INTERNAL_ISSUER: http://keycloak:8080/realms/capstone
@@ -283,11 +285,14 @@ services:
       AUDIO_STT_OPENAI_API_BASE_URL: http://speech-service:8000/v1
       AUDIO_STT_OPENAI_API_KEY: ${SPEECH_API_KEY}
       AUDIO_STT_MODEL: navitech-speaker-stt
+      # 올린 녹음을 그대로 speech-service에 넘긴다. 켜지 않으면 Open WebUI가 m4a → mp3 → 32kbps mp3로 두 번 다시 인코딩해
+      # 1시간 녹음에 40초쯤 더 걸리고 음질이 떨어져 화자 구분이 나빠진다 (speech-service가 어떤 형식이든 ffmpeg로 읽음)
+      BYPASS_PYDUB_PREPROCESSING: "true"
     volumes:
       - owui-data:/app/backend/data
       # 시작 시 /static/custom.css로 복사됨: 글꼴·글자 크기·색상 (infra/open-webui/custom.css 참고)
       - ./infra/open-webui/custom.css:/app/build/static/custom.css:ro
-      # 왼쪽 메뉴에 '회의 업무'(/meetings/) 링크를 더함 (Open WebUI의 빈 훅 loader.js를 덮어씀)
+      # 회의 채팅의 녹음 효과 · 회의 카드 · 녹음 파일 업로드 진행 표시 (Open WebUI의 빈 훅 loader.js를 덮어씀)
       - ./infra/open-webui/loader.js:/app/build/static/loader.js:ro
       - ./infra/open-webui/branding:/branding:ro
     ports:

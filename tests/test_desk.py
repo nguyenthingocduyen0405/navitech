@@ -82,6 +82,13 @@ def test_documents_come_back_as_pdf_and_downloads_are_audited(desk):
     assert post(client, "report", "t-secretary", {"meeting_id": "MTG-X", "kind": "minutes"}).json()["from"] == "/api/desk/report"
 
 
+def test_minutes_search_goes_through_as_a_read(desk):
+    client, fake, audit = desk
+    assert post(client, "minutes", "t-secretary", {"query": "뉴로엣지", "status": "final", "offset": 15}).status_code == 200
+    assert fake.backend[-1] == ("/api/desk/minutes", {**fake.backend[-1][1], "query": "뉴로엣지", "status": "final", "offset": 15})
+    assert audit.entries == []  # 조회는 감사 로그에 남기지 않음
+
+
 def test_login_and_permission_are_required(desk):
     client, fake, _ = desk
     assert post(client, "overview", None).status_code == 401

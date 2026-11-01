@@ -19,4 +19,5 @@ RUN useradd --system --uid 10004 speech
 USER speech
 
 EXPOSE 8000
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*"]
+# 낮은 우선순위: 긴 회의를 글로 옮기는 동안에도 같은 VM의 Open WebUI · Keycloak 응답이 밀리지 않게
+CMD ["nice", "-n", "10", "uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*"]

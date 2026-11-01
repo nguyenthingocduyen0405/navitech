@@ -1,5 +1,6 @@
 // Open WebUI가 모든 페이지에서 불러오는 빈 훅(/static/loader.js)입니다 (docker-compose.yml에서 이 파일을 덮어씀).
 // 고정 Agent 목록의 제목을 바꾸고, 회의지원 Agent 채팅에 녹음 효과 · 자동 회의록 요청 · 회의 카드를 더합니다.
+// 녹음 파일을 올리면 (어느 채팅이든) 글로 옮기는 진행 상황을 보여 줍니다.
 (() => {
   // 왼쪽 메뉴의 고정 모델 목록(DEFAULT_PINNED_MODELS) 제목 '모델' → 'Agent 목록'. 그 목록의 제목만 바꿉니다.
   function rename() {
@@ -304,6 +305,106 @@
       pill('녹음을 글로 옮기는 중…', `${clock(rec.ended - rec.started)} 녹음 · 발언자를 구분하고 있습니다`, 'busy');
     }
   }, true);
+
+  // ---------------------------------------------------------------------------
+  // 녹음 파일을 올리면 (어느 채팅이든): 올리는 중 → 글로 옮기는 중(경과 · 예상 시간) → 끝.
+  // Open WebUI는 POST /api/v1/files/로 올린 뒤 서버에서 speech-service로 글로 옮기는데, 끝날 때까지 첨부 칩만 돌아
+  // 멈춘 것처럼 보인다. 그 사이 새로고침하면 첨부가 사라지므로(서버 작업은 끝나도 채팅에 안 붙음) 떠나기 전에 묻는다.
+  // ---------------------------------------------------------------------------
+  const STT_SECONDS_PER_SECOND = 0.035; // 서버(4 vCPU, 로컬 엔진)에서 녹음 1분 ≈ 2초 (57분 회의로 측정)
+  const AUDIO_FILE = /\.(m4a|mp3|wav|webm|ogg|oga|opus|aac|flac|amr|3gp|wma|mp4)$/i;
+  const uploads = new Set();
+
+  function durationOf(file) {
+    return new Promise((resolve) => {
+      const a = document.createElement('audio');
+      const url = URL.createObjectURL(file);
+      const done = (v) => { URL.revokeObjectURL(url); resolve(v); };
+      a.preload = 'metadata';
+      a.onloadedmetadata = () => done(Number.isFinite(a.duration) ? a.duration : null);
+      a.onerror = () => done(null);
+      setTimeout(() => done(null), 5000);
+      a.src = url;
+    });
+  }
+
+  function upPill(up, title, sub, tone = 'busy') {
+    if (!up.pill) {
+      up.pill = document.createElement('div');
+      up.pill.setAttribute('role', 'status');
+      up.pill.setAttribute('aria-live', 'polite');
+      document.body.append(up.pill);
+    }
+    up.pill.className = `nv-rec-pill ${tone}`;
+    up.pill.innerHTML = '<span class="nv-rec-dot" aria-hidden="true"></span><span><b></b><span class="nv-rec-time"></span><small></small></span>';
+    up.pill.querySelector('b').textContent = title;
+    up.pill.querySelector('small').textContent = sub;
+  }
+
+  function upEnd(up, title, sub, tone, delay) {
+    clearInterval(up.timer);
+    uploads.delete(up);
+    upPill(up, title, sub, tone);
+    setTimeout(() => { up.pill.classList.add('leaving'); setTimeout(() => up.pill.remove(), 400); }, delay);
+  }
+
+  const about = (sec) => (sec < 90 ? `${Math.max(10, Math.round(sec / 10) * 10)}초` : `${Math.round(sec / 60)}분`);
+
+  function transcribing(up, id) {
+    const started = Date.now();
+    const length = up.duration ? `${Math.max(1, Math.round(up.duration / 60))}분 녹음` : '녹음';
+    const estimate = up.duration ? 10 + up.duration * STT_SECONDS_PER_SECOND : null;
+    const show = () => {
+      const spent = (Date.now() - started) / 1000;
+      const late = estimate && spent > estimate * 1.5;
+      upPill(up, '녹음을 글로 옮기는 중', `${length} · 발언자 구분 · ${estimate ? (late ? '예상보다 오래 걸리고 있습니다' : `보통 ${about(estimate)} 걸립니다`) : '긴 녹음은 몇 분 걸립니다'} · 끝날 때까지 새로고침하지 마세요`);
+      up.pill.querySelector('.nv-rec-time').textContent = ` ${clock(spent * 1000)}`;
+    };
+    show();
+    let polling = false;
+    let ticks = 0;
+    up.timer = setInterval(async () => {
+      show();
+      if (polling || ++ticks % 3) return; // 상태는 3초마다 묻는다
+      polling = true;
+      try {
+        const r = await realFetch(`/api/v1/files/${encodeURIComponent(id)}/process/status`, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
+        const d = r.ok ? await r.json() : null;
+        if (d && d.status === 'completed') upEnd(up, '녹음을 글로 옮겼습니다', `${clock(Date.now() - started)} 걸림 · 첨부된 파일과 함께 보내 주세요`, 'done', 5000);
+        else if (d && d.status === 'failed') upEnd(up, '녹음을 글로 옮기지 못했습니다', String(d.error || '파일 형식을 확인하고 다시 올려 주세요').slice(0, 160), 'error', 9000);
+        else if (!r.ok && r.status !== 429) upEnd(up, '진행 상황을 확인할 수 없습니다', '첨부 칩이 멈추지 않으면 다시 올려 주세요', 'error', 6000);
+      } catch { /* 다음 번에 다시 확인 */ } finally { polling = false; }
+    }, 1000);
+  }
+
+  const realFetch = window.fetch.bind(window);
+  window.fetch = async (input, init) => {
+    const url = typeof input === 'string' ? input : (input && input.url) || '';
+    const body = init && init.body;
+    const file = init && init.method === 'POST' && /\/api\/v1\/files\/(\?|$)/.test(url) && body instanceof FormData ? body.get('file') : null;
+    if (!(file instanceof File) || !(/^(audio|video)\//.test(file.type) || AUDIO_FILE.test(file.name))) return realFetch(input, init);
+    style();
+    const up = { started: Date.now(), duration: null };
+    uploads.add(up);
+    durationOf(file).then((d) => { up.duration = d; });
+    upPill(up, '녹음 파일을 올리는 중', `${file.name} · ${(file.size / 1048576).toFixed(file.size < 10485760 ? 1 : 0)}MB`);
+    try {
+      const res = await realFetch(input, init);
+      res.clone().json().then((d) => {
+        if (res.ok && d && d.id) transcribing(up, d.id);
+        else upEnd(up, '녹음 파일을 올리지 못했습니다', String((d && (d.detail || d.message)) || res.status).slice(0, 160), 'error', 9000);
+      }).catch(() => upEnd(up, '녹음 파일을 올리지 못했습니다', `HTTP ${res.status}`, 'error', 9000));
+      return res;
+    } catch (e) {
+      upEnd(up, '녹음 파일을 올리지 못했습니다', String((e && e.message) || e).slice(0, 160), 'error', 9000);
+      throw e;
+    }
+  };
+  window.addEventListener('beforeunload', (e) => {
+    if (!uploads.size) return;
+    e.preventDefault();
+    e.returnValue = ''; // 브라우저가 '사이트에서 나가시겠습니까?'를 묻는다
+  });
   // ---------------------------------------------------------------------------
   // 회의 카드: 회의지원 Agent 답변 끝의 ```navitech 블록(gateway가 회의 Tool 결과로 붙임)을 카드로 바꾼다.
   // 카드 내용은 회의 업무 API(/meetings/api/*)에서 그때그때 읽고, 버튼도 그 API를 부른다 (확정만 Agent에게 요청).
@@ -364,6 +465,9 @@
   .nv-assign .nv-input{margin:0}
   .nv-notice{position:fixed;bottom:110px;left:50%;transform:translateX(-50%);z-index:9999;padding:10px 16px;border-radius:12px;
     background:rgba(17,17,22,.94);color:#fff;font-size:13.5px;box-shadow:0 10px 30px rgba(0,0,0,.2)}
+  .nv-filter{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 4px}
+  .nv-filter button{height:26px;padding:0 10px;border-radius:999px;border:1px solid var(--nv-line);background:var(--nv-bg);color:var(--nv-muted);font-size:12px;font-weight:700;cursor:pointer}
+  .nv-filter button.on{background:var(--nv-brand);border-color:transparent;color:#fff}
   .nv-hidden-block{display:none!important}`;
 
   function cardStyle() {
@@ -483,11 +587,16 @@
     h('div', { class: 'nv-grow' }, h('div', { class: 'nv-title' }, title), meta ? h('div', { class: 'nv-meta' }, meta) : ''), chip || '');
   const section = (title, rows) => h('div', { class: 'nv-sec' }, h('div', { class: 'nv-sec-title' }, title), rows);
 
+  // 목소리가 등록되지 않은 발언자 ('화자 A', 예전 변환본은 '미확인 화자 1'): 사람이 아니므로 담당이면 실제 이름을 정해야 함
+  const UNNAMED = /^(화자 [A-Z]{1,2}|미확인 화자( \d+)?)$/;
+  const named = (owner) => !!owner && !UNNAMED.test(owner.trim());
+
   // 할 일 한 줄: 완료 · 진행 중, 담당 · 기한 지정 (확정된 회의록의 할 일이면 새 담당자에게 업무 배정 메일이 감)
   function itemRow(it, reload, withMeeting, open = false) {
     const [due, tone] = dueText(it.due);
     const done = it.status === 'done';
-    const owner = h('input', { class: 'nv-input', placeholder: '담당 (이름 또는 부서, 예: 박지훈 · 재무기획팀)', value: it.owner || '' });
+    const owner = h('input', { class: 'nv-input', value: named(it.owner) ? it.owner : '',
+      placeholder: it.owner ? `${it.owner}의 실제 이름 (예: 박지훈 · 재무기획팀)` : '담당 (이름 또는 부서, 예: 박지훈 · 재무기획팀)' });
     const date = h('input', { class: 'nv-input', type: 'date', value: it.due || '' });
     const save = h('button', { class: 'nv-btn small primary', type: 'button', onclick: act(async () => {
       const body = { item_id: it.id };
@@ -503,7 +612,7 @@
     return h('div', { class: 'nv-row top' },
       h('div', { class: 'nv-grow' }, h('div', {}, it.text),
         h('div', { class: 'nv-meta' }, h('span', { class: it.due ? tone : 'nv-danger' }, due), ' · ',
-          h('span', { class: it.owner ? '' : 'nv-danger' }, it.owner || '담당 미정'),
+          h('span', { class: named(it.owner) ? '' : 'nv-danger' }, it.owner ? (named(it.owner) ? it.owner : `${it.owner} (이름 지정 필요)`) : '담당 미정'),
           withMeeting && it.meeting ? ` · ${it.meeting.title}` : '', ` · ${ITEM[it.status] || it.status}`),
         editor),
       done ? h('span', { class: 'nv-chip final' }, '완료') : h('div', { class: 'nv-btns' },
@@ -539,7 +648,7 @@
   function minutesView(d, reload) {
     const m = d.meeting;
     const open = (d.flags || []).filter((f) => f.status === 'open');
-    const missing = m.status === 'final' ? [] : m.open_action_items.filter((it) => !it.owner || !it.due);
+    const missing = m.status === 'final' ? [] : m.open_action_items.filter((it) => !named(it.owner) || !it.due);
     const decided = m.decisions.filter((x) => ['decision', 'resolution', 'criterion'].includes(x.kind));
     const people = (d.participants || []).map((p) => `${p.name}${ROLE[p.role] ? ` · ${ROLE[p.role]}` : ''}`);
     const details = h('div', { hidden: true },
@@ -680,7 +789,38 @@
     });
   }
 
-  // 새 회의지원 채팅의 첫 화면: 다가오는 회의 · 최근 회의록 · 내 할 일 · 검토 · 보내지 못한 메일
+  // 회의록 찾기: 검색어(회의명 · 주제 · 내용 · id) · 초안/확정, 최근 순으로 한 쪽씩. 누르면 그 자리에서 회의록 카드
+  function minutesBrowser() {
+    let status = '';
+    let query = '';
+    let timer;
+    const list = h('div', {});
+    const chips = h('div', { class: 'nv-filter' });
+    const more = h('button', { class: 'nv-btn small', type: 'button', hidden: true }, '더 보기');
+    const input = h('input', { class: 'nv-input', type: 'search', placeholder: '회의록 찾기 — 회의명 · 주제 · 내용 · 회의 id' });
+    const row = (m) => meetingRow(m.id, m.title, `${when(m.date, m.time)} · ${m.id}`,
+      h('span', { class: `nv-chip ${m.status === 'final' ? 'final' : 'draft'}` }, m.status === 'final' ? '확정' : '초안'),
+      m.open_flags ? h('span', { class: 'nv-chip draft' }, `위험 발언 ${m.open_flags}`) : '');
+    async function load(offset = 0) {
+      try {
+        const d = await api('minutes', { query, status: status || null, offset });
+        if (!offset) list.replaceChildren();
+        list.append(...(d.minutes.length || offset ? d.minutes.map(row).flat() : [h('div', { class: 'nv-meta', style: 'padding:8px 0' }, '찾는 회의록이 없습니다')]));
+        more.hidden = !d.more;
+        more.onclick = () => load(offset + d.minutes.length);
+        const c = d.counts || {};
+        chips.replaceChildren(...[['', '전체', c.total], ['draft', '초안', c.draft], ['final', '확정', c.final]].map(([key, label, n]) =>
+          h('button', { class: key === status ? 'on' : '', type: 'button', onclick: () => { status = key; load(); } }, `${label} ${n ?? ''}`)));
+      } catch (e) {
+        list.replaceChildren(h('div', { class: 'nv-err' }, `회의록을 불러오지 못했습니다: ${e.message}`));
+      }
+    }
+    input.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(() => { query = input.value.trim(); load(); }, 300); });
+    load();
+    return h('div', { class: 'nv-sec' }, h('div', { class: 'nv-sec-title' }, '회의록'), input, chips, list, more);
+  }
+
+  // 새 회의지원 채팅의 첫 화면: 다가오는 회의 · 회의록 찾기 · 내 할 일 · 검토 · 메일
   function overviewCard() {
     return shell(async (reload) => {
       const d = await api('overview');
@@ -689,9 +829,6 @@
       const upcoming = (d.upcoming || []).slice(0, 3).map((s) => meetingRow(s.id, s.title, `${dateLabel(s.starts_at)} ${slot(s)}${s.location ? ` · ${s.location}` : ''}`,
         h('span', { class: 'nv-chip' }, s.starts_at.slice(0, 10) === today ? '오늘' : '예정'),
         s.starts_at.slice(0, 10) === today ? h('button', { class: 'nv-btn small rec', type: 'button', onclick: (e) => { e.stopPropagation(); startRecording(s.id); } }, '녹음 시작') : ''));
-      const minutes = (d.minutes || []).slice(0, 3).map((m) => meetingRow(m.id, m.title, when(m.date, m.time),
-        h('span', { class: `nv-chip ${m.status === 'final' ? 'final' : 'draft'}` }, m.status === 'final' ? '확정' : '초안'),
-        m.open_flags ? h('span', { class: 'nv-chip draft' }, `위험 발언 ${m.open_flags}`) : ''));
       const mine = h('div', { hidden: true }, (d.my_items || []).map((it) => itemRow(it, reload, true)));
       const all = h('div', { style: 'padding:0 16px' });
       const mails = h('div', { style: 'padding:0 16px' });
@@ -708,7 +845,7 @@
         all, mails,
         mine.childNodes.length ? h('div', { class: 'nv-sec' }, mine) : '',
         upcoming.length ? section('다가오는 회의', upcoming) : '',
-        minutes.length ? section('최근 회의록', minutes) : '',
+        minutesBrowser(),
       ];
     });
   }
