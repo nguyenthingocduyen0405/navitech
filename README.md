@@ -48,6 +48,7 @@ Agent 전환은 Open WebUI 왼쪽 메뉴의 고정 목록(`DEFAULT_PINNED_MODELS
 - 메일 받는 사람의 주소는 backend가 gateway의 내부 API `GET /internal/directory/people?name=`(Bearer `INTERNAL_API_KEY`)로 찾습니다. 이름이 정확히 한 명일 때만 쓰고,
   못 찾으면 "주소 필요"로 남겨 간사가 알려 주게 합니다. 공개 nginx(`api.` 호스트)는 `/internal/`을 막습니다.
 - 메일 발송 계정 (예: Gmail 앱 비밀번호): `.env`에 `SMTP_HOST=smtp.gmail.com`, `SMTP_PORT=587`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM` → `docker compose up -d agents-k agents-group`.
+- 회의 기록을 예시 회의 없이 빈 채로 시작하려면 `.env`에 `MEETINGS_SEED_MEETINGS=0` (저장소가 비었을 때 `data/meetings.json`의 예시 회의를 넣지 않음, 임직원 연락처는 넣음).
 
 ## 디렉터리 구성
 
