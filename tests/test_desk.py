@@ -71,7 +71,7 @@ def test_page_is_served(desk):
     client, _, _ = desk
     page = client.get("/meetings/")
     assert page.status_code == 200 and "회의 업무" in page.text
-    assert client.get("/meetings/app.js").status_code == 200
+    assert 'id="nv-desk"' in page.text and "/static/loader.js" in page.text  # 채팅의 회의 카드와 같은 코드가 그림
 
 
 def test_requests_go_to_the_backend_as_the_logged_in_user(desk):
@@ -103,6 +103,13 @@ def test_minutes_search_goes_through_as_a_read(desk):
     assert post(client, "minutes", "t-secretary", {"query": "뉴로엣지", "status": "final", "offset": 15}).status_code == 200
     assert fake.backend[-1] == ("/api/desk/minutes", {**fake.backend[-1][1], "query": "뉴로엣지", "status": "final", "offset": 15})
     assert audit.entries == []  # 조회는 감사 로그에 남기지 않음
+
+
+def test_closing_a_shaken_premise_is_a_write(desk):
+    client, fake, audit = desk
+    assert post(client, "watch", "t-secretary", {"action": "dismiss", "signal_id": "SIG-4", "note": "일시적"}).status_code == 200
+    assert fake.backend[-1][0] == "/api/desk/watch" and fake.backend[-1][1]["signal_id"] == "SIG-4"
+    assert audit.entries[-1].query == "[회의 업무] watch dismiss SIG-4"
 
 
 def test_login_and_permission_are_required(desk):

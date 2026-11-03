@@ -175,9 +175,9 @@ def cards_from(event: dict) -> list[dict]:
     def ids(rows, limit=MAX_CARD_ITEMS):
         return [r["id"] for r in rows or [] if isinstance(r, dict) and r.get("id")][:limit]
 
-    # 확정 · 예약 · 담당 지정으로 나간 메일 (받는 사람 · 보냄 여부)
+    # 확정 · 예약 · 담당 지정 · 독촉으로 나간 메일 (받는 사람 · 보냄 여부). 한 답변에서 여러 번 한 일은 모아서 보인다 (add)
     sent = ids(result.get("mail_queued"))
-    mail = [{"card": "mail", "ids": sent}] if sent else []
+    mail = [{"card": "mail", "ids": sent, "add": True}] if sent else []
 
     if tool == "save_meeting_minutes" and result.get("saved") and result.get("meeting_id"):
         return [{"card": "meeting", "id": result["meeting_id"]}, *mail]
@@ -189,11 +189,17 @@ def cards_from(event: dict) -> list[dict]:
     if tool == "run_meeting_context_retrieval":
         found = ids(result.get("meetings"), MAX_CARD_MEETINGS)
         return [{"card": "meetings", "ids": found}] if found else []
+    if tool == "run_decision_review":  # 결정이 나온 회의 (전제 · 조건과 그 상태가 카드에 보임)
+        found = list(dict.fromkeys(d["meeting"]["id"] for d in result.get("decisions") or []
+                                   if isinstance(d, dict) and isinstance(d.get("meeting"), dict) and d["meeting"].get("id")))
+        if len(found) == 1:
+            return [{"card": "meeting", "id": found[0]}]
+        return [{"card": "meetings", "ids": found[:MAX_CARD_MEETINGS]}] if found else []
     if tool == "run_action_item_tracking":
         found = ids(result.get("items"))
         return [{"card": "items", "ids": found}] if found else []
     if tool == "update_action_item" and result.get("updated") and isinstance(result.get("item"), dict):
-        return [{"card": "items", "ids": ids([result["item"]])}, *mail]
+        return [{"card": "items", "ids": ids([result["item"]]), "add": True}, *mail]
     if tool == "manage_mail_outbox" and result.get("ok") is not False:
         found = ids(result.get("mails"))
         return [{"card": "mail", "ids": found}] if found else []
@@ -201,16 +207,20 @@ def cards_from(event: dict) -> list[dict]:
 
 
 def card_blocks(cards: list[dict]) -> str:
-    """답변 끝에 붙는 카드 블록 (같은 카드는 한 번만, 같은 종류의 목록은 뒤의 것으로). 회의 하나를 예약 · 저장한 답변에는
-    그 전에 겹치는 일정을 확인하려고 조회한 회의 목록을 붙이지 않는다."""
+    """답변 끝에 붙는 카드 블록 (같은 카드는 한 번만, 같은 종류의 목록은 뒤의 것으로 — 다만 할 일을 하나씩 바꾸거나 메일을
+    보낸 결과(add)가 이어지면 합친다). 회의 하나를 예약 · 저장한 답변에는 그 전에 겹치는 일정을 확인하려고 조회한 회의 목록을
+    붙이지 않는다."""
     if any(c["card"] == "meeting" for c in cards):
         cards = [c for c in cards if c["card"] != "meetings"]
     latest: dict[str, dict] = {}
     for card in cards:
         key = card["card"] + (f":{card['id']}" if "id" in card else "")
-        latest.pop(key, None)
+        prev = latest.pop(key, None)
+        if prev and prev.get("add") and card.get("add"):
+            card = {**card, "ids": list(dict.fromkeys(prev["ids"] + card["ids"]))}
         latest[key] = card
-    return "".join(f"\n\n```{CARD_FENCE}\n{json.dumps(c, ensure_ascii=False)}\n```" for c in latest.values())
+    return "".join(f"\n\n```{CARD_FENCE}\n{json.dumps({k: v for k, v in c.items() if k != 'add'}, ensure_ascii=False)}\n```"
+                   for c in latest.values())
 
 
 class RemoteAgent:

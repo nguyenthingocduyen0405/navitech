@@ -32,10 +32,11 @@ from gateway.settings import Settings
 log = logging.getLogger("gateway.desk")
 
 STATIC = Path(__file__).resolve().parent / "static" / "meetings"
-ENDPOINTS = ("overview", "mail", "flags", "items", "meeting", "schedule", "report", "minutes", "checkin", "attendance", "people")
+ENDPOINTS = ("overview", "mail", "flags", "items", "meeting", "schedule", "report", "minutes", "checkin", "attendance", "people",
+             "watch", "control", "finalize")
 FIELDS = ("action", "view", "meeting_id", "mail_ids", "email", "note", "reviews", "item_id", "status",
           "title", "starts_at", "ends_at", "location", "attendees", "agenda", "classification", "kind", "owner", "due",
-          "query", "offset", "code", "token", "voice_consent", "source_name", "speaker", "person")
+          "query", "offset", "code", "token", "voice_consent", "source_name", "speaker", "person", "signal_id")
 READ_ACTIONS = ("list", None, "status")
 PERMISSION = "meeting-agent"  # 회의지원 Agent를 쓸 수 있는 사용자만
 TIMEOUT = httpx.Timeout(20.0, connect=5.0)
@@ -130,9 +131,9 @@ def register_desk(
         body["principal"] = principal(ctx)
         if settings.principal_signing_key:
             body["principal_token"] = principal_token(ctx, settings.principal_signing_key)
-        writes = body.get("item_id") or body.get("action") not in READ_ACTIONS
+        writes = body.get("item_id") or body.get("action") not in READ_ACTIONS or endpoint == "finalize"
         if writes or endpoint == "report":  # 검토 · 완료 · 일정 · 메일 다시 보내기 · 취소 · 문서 내려받기는 감사 로그에 남김
-            what = body.get("mail_ids") or body.get("meeting_id") or body.get("item_id") or body.get("code") or ""
+            what = body.get("mail_ids") or body.get("meeting_id") or body.get("item_id") or body.get("code") or body.get("signal_id") or ""
             how = body.get("kind") if endpoint == "report" else body.get("action") or body.get("status")
             await audit.record(AuditEntry(email=ctx.email, agent=PERMISSION, allowed=True,
                                           query=f"[회의 업무] {endpoint} {how or ''} {what}".strip()))

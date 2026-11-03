@@ -3,26 +3,35 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
 <title>회의 업무 · Navitech</title>
 <link rel="icon" href="/static/favicon.png">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-<link rel="stylesheet" href="style.css?v=6">
-<script src="app.js?v=6" defer></script>
+<style>
+  :root { --bg:#f3f4f6; --ink:#111827; }
+  :root.dark { --bg:#121214; --ink:#f3f4f6; }
+  * { box-sizing:border-box; }
+  body { margin:0; min-height:100vh; background:var(--bg); color:var(--ink);
+    font:15px/1.55 "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif; }
+  .boot { padding:40px; color:#6b7280; font-size:14px; }
+</style>
+<script>
+  // Open WebUI와 같은 테마 · 같은 로그인. 로그인 전이면 Open WebUI에 로그인한 뒤 이 화면으로 돌아온다 (loader.js).
+  (() => {
+    const theme = localStorage.getItem('theme');
+    const dark = theme === 'dark' || theme === 'oled-dark' || ((!theme || theme === 'system') && matchMedia('(prefers-color-scheme: dark)').matches);
+    if (dark) document.documentElement.classList.add('dark');
+    if (!localStorage.getItem('token')) {
+      localStorage.setItem('navitech.checkin.next', location.pathname + location.search);
+      location.replace('/auth');
+    }
+  })();
+</script>
+<!-- 화면(위 검색 · 왼쪽 메뉴 · 목록과 회의 카드)은 채팅의 회의 카드와 같은 코드
+     (Open WebUI에 끼워 넣는 /static/loader.js = infra/open-webui/loader.js)가 #nv-desk에 그린다 -->
+<script src="/static/loader.js" defer></script>
 </head>
 <body>
-<header class="topbar">
-  <a class="brand" href="/"><img src="/static/favicon.png" alt=""><span>Navitech</span></a>
-  <nav class="tabs" aria-label="회의 업무 메뉴">
-    <a href="#home" data-tab="home">홈</a>
-    <a href="#approvals" data-tab="approvals">검토 · 메일<span class="badge" id="badge"></span></a>
-    <a href="#items" data-tab="items">후속 조치</a>
-    <a href="#minutes" data-tab="minutes">회의록</a>
-  </nav>
-  <div class="spacer"></div>
-  <a class="btn ghost" href="/?model=meeting-agent">회의지원 Agent와 대화</a>
-  <span class="user" id="user"></span>
-</header>
-<main id="main" aria-live="polite"></main>
-<dialog id="dialog" aria-labelledby="dialog-title"></dialog>
+<div id="nv-desk"><div class="boot">회의 업무를 불러오는 중…</div></div>
 </body>
 </html>

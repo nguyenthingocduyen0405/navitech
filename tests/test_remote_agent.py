@@ -144,6 +144,34 @@ def test_meeting_tool_results_become_card_blocks_after_the_answer(audit):
                      {"card": "mail", "ids": ["MAIL-7", "MAIL-8"]}]  # nothing for failures or for K Electronics' store
 
 
+def test_items_changed_one_by_one_show_together(audit):
+    def nudged(item, mail):
+        return group({"type": "tool_end", "agent": "meeting", "tool": "update_action_item",
+                      "result": {"updated": True, "item": {"id": item}, "mail_queued": [{"id": mail}]}})
+
+    body = ndjson(
+        group({"type": "tool_end", "agent": "meeting", "tool": "run_action_item_tracking",
+               "result": {"items": [{"id": "MTG-2026-10-28-01-A1"}, {"id": "MTG-2026-10-28-01-A2"}, {"id": "MTG-2026-10-28-01-A3"}]}}),
+        nudged("MTG-2026-10-28-01-A1", "MAIL-209"), nudged("MTG-2026-10-28-01-A2", "MAIL-210"),
+        group({"type": "agent_token", "agent": "meeting", "text": "독촉 메일 2건을 보냈습니다."}), group({"type": "done"}),
+    )
+    with make_client(FakeBackend(body), audit) as client:
+        content = chat(client, "meeting-agent", "ceo@example.com").json()["choices"][0]["message"]["content"]
+    cards = [json.loads(b.removesuffix("\n```")) for b in content.split("\n\n```navitech\n")[1:]]
+    assert cards == [{"card": "items", "ids": ["MTG-2026-10-28-01-A1", "MTG-2026-10-28-01-A2"]},  # what was changed, not the lookup
+                     {"card": "mail", "ids": ["MAIL-209", "MAIL-210"]}]
+
+
+def test_a_decision_review_shows_the_meeting_the_decision_came_from(audit):
+    decision = {"ref": "MTG-2026-11-03-01-D1", "meeting": {"id": "MTG-2026-11-03-01"}}
+    body = ndjson(group({"type": "tool_end", "agent": "meeting", "tool": "run_decision_review",
+                         "result": {"decisions": [decision, {**decision, "ref": "MTG-2026-11-03-01-D2"}], "conflicts": []}}),
+                  group({"type": "agent_token", "agent": "meeting", "text": "재검토가 필요합니다."}), group({"type": "done"}))
+    with make_client(FakeBackend(body), audit) as client:
+        content = chat(client, "meeting-agent", "ceo@example.com").json()["choices"][0]["message"]["content"]
+    assert content.endswith('```navitech\n{"card": "meeting", "id": "MTG-2026-11-03-01"}\n```')
+
+
 def test_answer_without_tokens_uses_agent_end(audit):
     body = ndjson(group({"type": "agent_end", "agent": "news", "response": "전체 답변"}), group({"type": "done"}))
     with make_client(FakeBackend(body), audit) as client:
