@@ -138,6 +138,8 @@ services:
       K_ELECTRONICS_A2A_URL: http://agents-k:8000/api/a2a/run
       MEETINGS_DATABASE_URL: postgresql://agents_group:${AGENTS_GROUP_DB_PASSWORD}@postgres:5432/agents
       MEETINGS_ANONYMOUS_CLEARANCE: "0"
+      # 업무 배정 · 기한 알림 메일의 버튼(완료 · 진행 중 · 막힘)이 여는 gateway 화면 (로그인 없음, mail_actions). 비우면 버튼 없이 보냄
+      MEETINGS_ACTION_URL: ${OPENWEBUI_PUBLIC_URL}/meetings/act
     depends_on:
       postgres:
         condition: service_healthy

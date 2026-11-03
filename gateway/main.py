@@ -23,6 +23,7 @@ from agents.registry import build_registry
 from gateway.audit import AuditEntry, AuditLog, PostgresAuditLog
 from gateway.auth import AuthError, build_user_context, check_api_key, verify_openwebui_jwt
 from gateway.desk import register_desk
+from gateway.mail_action import register_mail_action
 from gateway.recording import register_recording
 from gateway.voice_check import register_voice_check
 from gateway.directory import Directory, DirectoryUnavailable, KeycloakDirectory
@@ -238,5 +239,6 @@ def create_app(
 
     register_voice_check(app, settings, directory, permissions, audit, transport=desk_transport)  # /meetings/api/{endpoint}보다 먼저
     register_recording(app, settings, directory, permissions, audit, agents, transport=desk_transport)  # 회의 관제에서 녹음 받기
+    register_mail_action(app, settings, audit, transport=desk_transport)  # 메일 버튼의 진행 보고 (로그인 없음), /meetings 정적 화면보다 먼저
     register_desk(app, settings, directory, permissions, audit, transport=desk_transport)
     return app

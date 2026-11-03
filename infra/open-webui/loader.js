@@ -753,6 +753,10 @@
   .nv-pp.nested+.nv-pp-body .nv-oi{padding-left:82px}
   .nv-oi.done .nv-oi-text{color:var(--nv-muted);text-decoration:line-through}
   .nv-oi .nv-st{flex:none;min-width:58px;justify-content:center}
+  .nv-oi-st{display:flex;flex-direction:column;gap:4px;flex:none}
+  .nv-oi-last{margin-top:4px;font-size:12.5px;color:var(--nv-muted)}
+  .nv-oi-last.mail{color:var(--nv-brand);font-weight:600}
+  .nv-oi-last span{font-weight:500}
   .nv-oi-src{color:var(--nv-muted);text-decoration:underline;text-decoration-color:var(--nv-line);text-underline-offset:2px}
   .nv-oi-src:hover{color:var(--nv-brand)}
   .nv-tabs{display:flex;gap:2px;margin-bottom:12px;border-bottom:1px solid var(--nv-line);overflow-x:auto;scrollbar-width:none}
@@ -796,7 +800,7 @@
   .nv-fi i{display:grid;place-items:center;width:26px;height:26px;border-radius:50%;background:var(--nv-sub);color:var(--nv-muted)}
   .nv-fi i svg{width:14px;height:14px}
   .nv-fi.signal i,.nv-fi.alert i{background:rgba(220,38,38,.12);color:#dc2626}
-  .nv-fi.final i{background:rgba(15,157,88,.12);color:#0f9d58}
+  .nv-fi.final i,.nv-fi.report i{background:rgba(15,157,88,.12);color:#0f9d58}
   .nv-fi.change i,.nv-fi.schedule i{background:rgba(91,91,214,.12);color:var(--nv-brand)}
   .nv-fi.recording i,.nv-fi.draft i{background:rgba(234,88,12,.1);color:#c2410c}
   .nv-fi>div{font-size:13px;line-height:1.45}
@@ -1371,7 +1375,8 @@
   const LIVE_MS = 10000;
   const LAMP = { alarm: '#dc2626', warn: '#ea580c', ok: '#0f9d58' };
   const AVATAR = ['#5b5bd6', '#0f9d58', '#c2410c', '#0b6f83', '#9a3fb8', '#b45309'];
-  const FEED_ICON = { recording: 'mic', draft: 'minutes', final: 'items', change: 'change', signal: 'signal', alert: 'mail', mail: 'mail', schedule: 'schedule' };
+  const FEED_ICON = { recording: 'mic', draft: 'minutes', final: 'items', change: 'change', signal: 'signal', alert: 'mail', mail: 'mail', schedule: 'schedule',
+    report: 'items' };
   let seenLog = null; // 이 화면에서 이미 본 상황 기록
   let ctlFilter = ''; // 주제 탭
 
@@ -1731,11 +1736,20 @@
     const done = it.status === 'done';
     const [due, tone] = done ? ['완료', ''] : dueText(it.due);
     const set = (status) => act(async () => { await api('items', { item_id: it.id, status }); await reload(); });
+    const status = h('span', { class: `nv-st ${ITEM_TONE[it.status] || ''}` }, ITEM[it.status] || it.status);
+    // 마지막 기록: 담당자가 메일 버튼으로 알린 상황 · 메모 (또는 독촉 · 기한 변경)
+    const last = it.last && (() => {
+      const mail = it.last.note.startsWith('메일로 보고');
+      const rest = mail ? it.last.note.replace(/^메일로 보고:?\s*/, '') : it.last.note;
+      return h('div', { class: `nv-oi-last${mail ? ' mail' : ''}` }, `${mail ? '메일 보고' : '기록'} · ${it.last.by || ''} ${md(it.last.at)} ${it.last.at.slice(11)}`,
+        rest ? h('span', {}, ` — ${rest}`) : '');
+    })();
     return h('div', { class: `nv-oi${done ? ' done' : ''}` },
-      h('span', { class: `nv-st ${it.overdue ? 'live' : ITEM_TONE[it.status] || ''}` }, it.overdue ? '기한 지남' : ITEM[it.status] || it.status),
+      it.overdue ? h('div', { class: 'nv-oi-st' }, h('span', { class: 'nv-st live' }, '기한 지남'), it.status !== 'open' ? status : '') : status,
       h('div', { class: 'nv-grow' }, h('div', { class: 'nv-oi-text' }, it.text),
         h('div', { class: 'nv-meta' }, h('span', { class: tone }, due), ' · ',
-          h('a', { class: 'nv-oi-src', href: deskLink('home', it.meeting.id), title: `${it.meeting.title} · ${it.meeting.id}` }, `${md(it.meeting.date)} ${it.meeting.title}`))),
+          h('a', { class: 'nv-oi-src', href: deskLink('home', it.meeting.id), title: `${it.meeting.title} · ${it.meeting.id}` }, `${md(it.meeting.date)} ${it.meeting.title}`)),
+        last || ''),
       done ? '' : h('div', { class: 'nv-btns' },
         it.status === 'open' ? h('button', { class: 'nv-btn small', type: 'button', onclick: set('in_progress') }, '진행 중') : '',
         h('button', { class: 'nv-btn small', type: 'button', onclick: set('done') }, '완료')));
