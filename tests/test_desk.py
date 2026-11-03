@@ -44,17 +44,21 @@ class Fake:
         return httpx.Response(200, json={"ok": True, "from": request.url.path})
 
 
-@pytest.fixture
-def desk():
-    fake, audit = Fake(), MemoryAuditLog()
+def desk_app(fake, audit, **overrides):
     settings = Settings(
         backend_api_key=API_KEY, owui_jwt_secret=JWT_SECRET, permissions_file=str(PERMISSIONS_FILE),
         app_database_url="unused", keycloak_url="unused", keycloak_realm="capstone", keycloak_client_id="gateway",
         keycloak_client_secret="unused", agent_backend_url="http://agents-group:8001", principal_signing_key="s" * 40,
         public_url="https://navitech.example", speech_service_url="http://speech-service:8000", speech_api_key="speech-key",
+        **overrides,
     )
-    app = create_app(settings, directory=FakeDirectory(), audit=audit, desk_transport=httpx.MockTransport(fake.handler))
-    with TestClient(app) as client:
+    return create_app(settings, directory=FakeDirectory(), audit=audit, desk_transport=httpx.MockTransport(fake.handler))
+
+
+@pytest.fixture
+def desk():
+    fake, audit = Fake(), MemoryAuditLog()
+    with TestClient(desk_app(fake, audit)) as client:
         yield client, fake, audit
 
 
@@ -190,3 +194,12 @@ def test_voice_check_needs_the_meeting_agent_permission_and_a_sane_upload(desk, 
     assert fake.speech == []
     page = client.get("/meetings/voice-check/")
     assert page.status_code == 200 and "목소리 구분 확인" in page.text and page.headers["cache-control"] == "no-store"
+
+
+def test_check_in_can_be_turned_off():
+    fake = Fake()
+    with TestClient(desk_app(fake, MemoryAuditLog(), checkin_enabled=False)) as client:
+        resp = post(client, "checkin", "t-secretary", {"action": "open", "source_name": "회의.m4a"})
+        assert resp.status_code == 404 and "꺼져" in resp.json()["error"]  # 채팅 화면은 QR 없이 회의록만 만든다
+        assert post(client, "overview", "t-secretary").status_code == 200  # 다른 회의 업무는 그대로
+    assert [path for path, _ in fake.backend] == ["/api/desk/overview"]

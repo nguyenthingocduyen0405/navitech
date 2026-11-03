@@ -35,6 +35,7 @@ class Settings:
     public_url: str = ""  # 사용자가 여는 주소 (예: https://jbnunavitech.me:17227) — 출석 QR이 가리키는 곳. 비우면 요청 주소
     speech_service_url: str = ""  # 목소리 구분 확인 화면이 녹음을 보내는 곳 (gateway/voice_check.py). 비우면 그 화면을 쓸 수 없음
     speech_api_key: str = ""  # = speech-service의 SPEECH_API_KEY
+    checkin_enabled: bool = True  # CHECKIN_ENABLED=0: 출석 확인(QR)을 끔 — 채팅에 QR이 뜨지 않고 휴대폰 출석도 받지 않음
     user_jwt_header: str = "X-OpenWebUI-User-Jwt"
     chat_id_header: str = "X-OpenWebUI-Chat-Id"
 
@@ -56,4 +57,5 @@ class Settings:
             public_url=os.environ.get("PUBLIC_URL", "").strip().rstrip("/"),
             speech_service_url=os.environ.get("SPEECH_SERVICE_URL", "").strip().rstrip("/"),
             speech_api_key=os.environ.get("SPEECH_API_KEY", "").strip(),
+            checkin_enabled=os.environ.get("CHECKIN_ENABLED", "1").strip().lower() not in ("0", "off", "false", "no"),
         )

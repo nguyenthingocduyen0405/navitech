@@ -84,6 +84,8 @@ def register_desk(
     async def desk(endpoint: str, request: Request):
         if endpoint not in ENDPOINTS:
             return _error(404, "Not Found")
+        if endpoint == "checkin" and not settings.checkin_enabled:  # 화면(loader.js)은 실패하면 QR 없이 회의록만 만든다
+            return _error(404, "출석 확인(QR)은 지금 꺼져 있습니다.")
         if not settings.agent_backend_url:
             return _error(503, "Agent backend가 설정되지 않았습니다.")
         try:

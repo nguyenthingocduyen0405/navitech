@@ -39,6 +39,8 @@ x-meetings-env: &meetings-env
   MEETINGS_BACKGROUND_JOBS: "1"
   # 회의 Agent가 녹음 변환본을 읽기 전에 잘못 들린 말을 고친다 (library/tools/correct_transcript). 0이면 끔
   TRANSCRIPT_CORRECTION: ${TRANSCRIPT_CORRECTION:-1}
+  # 출석 확인(QR). 0이면 끔 (gateway에도 같은 값)
+  CHECKIN_ENABLED: ${CHECKIN_ENABLED:-1}
   SMTP_HOST: ${SMTP_HOST:-}
   SMTP_PORT: ${SMTP_PORT:-587}
   SMTP_SECURITY: ${SMTP_SECURITY:-starttls}
@@ -201,6 +203,7 @@ services:
       # 목소리 구분 확인 화면 /meetings/voice-check/ (gateway/voice_check.py)이 녹음을 보내는 곳
       SPEECH_SERVICE_URL: http://speech-service:8000
       SPEECH_API_KEY: ${SPEECH_API_KEY}
+      CHECKIN_ENABLED: ${CHECKIN_ENABLED:-1}   # 출석 확인(QR). 0이면 끔
       BACKEND_API_KEY: ${BACKEND_API_KEY}
       OWUI_FORWARD_JWT_SECRET: ${OWUI_FORWARD_JWT_SECRET}
       PERMISSIONS_FILE: /app/config/permissions.yaml
