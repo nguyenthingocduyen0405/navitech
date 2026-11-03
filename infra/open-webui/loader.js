@@ -1423,13 +1423,14 @@
       const open = () => { location.hash = deskLink('home', m.id); };
       const dash = h('span', { class: 'dim' }, '—');
       const minutes = m.phase === 'live' ? h('span', { class: 'nv-st live' }, h('span', { class: 'nv-lamp alarm' }), '회의 중')
+        : m.phase === 'pending' ? h('span', { class: 'nv-st warn' }, '회의록 없음')
         : m.phase === 'upcoming' ? h('span', { class: 'nv-st plan' }, '예정')
           : h('span', { class: `nv-st ${m.minutes === 'final' ? 'ok' : 'warn'}` }, m.minutes === 'final' ? '확정' : '초안');
       return h('tr', { class: `row ${m.phase}${m.id === sel ? ' sel' : ''}`, 'data-id': m.id, tabindex: '0', onclick: open, onkeydown: (e) => { if (e.key === 'Enter') open(); } },
         h('td', { class: 't-when' }, h('b', {}, m.phase === 'live' ? '지금' : md(m.date)), h('small', {}, (m.time || '').split('~')[0])),
         h('td', {}, h('div', { class: 't-title', title: `${m.title} · ${m.id}` }, m.title)),
         h('td', { class: 'opt' }, h('span', { class: 't-sub' }, h('span', { class: 'nv-dotc', style: `background:${LAMP[state[m.subject]] || '#9ca3af'}` }), m.subject)),
-        h('td', { class: 'opt num' }, m.recording ? mmss(m.recording.seconds) : m.phase === 'live' ? h('span', { class: 'dim' }, '대기') : dash),
+        h('td', { class: 'opt num' }, m.recording ? mmss(m.recording.seconds) : ['live', 'pending'].includes(m.phase) ? h('span', { class: 'dim' }, '대기') : dash),
         h('td', {}, minutes),
         h('td', { class: 'num' }, m.phase === 'done' ? String(m.decisions) : dash),
         h('td', {}, m.items ? h('span', { class: 'nv-mini' }, progressBar(m.items.done, m.items.total),
@@ -1440,7 +1441,8 @@
       h('table', { class: 'nv-tbl' },
         h('thead', {}, h('tr', {}, ['일시', '회의', '주제', '녹음', '회의록', '결정', '분공', '메일'].map((t, i) =>
           h('th', { class: `${[2, 3, 7].includes(i) ? 'opt ' : ''}${[3, 5, 7].includes(i) ? 'num' : ''}` }, t)))),
-        h('tbody', {}, group('진행 중', rows.filter((m) => m.phase === 'live')), group('예정', rows.filter((m) => m.phase === 'upcoming')),
+        h('tbody', {}, group('진행 중', rows.filter((m) => m.phase === 'live')), group('기록 대기', rows.filter((m) => m.phase === 'pending')),
+          group('예정', rows.filter((m) => m.phase === 'upcoming')),
           group('완료', rows.filter((m) => m.phase === 'done')))),
       rows.length ? '' : empty('이 주제의 회의가 없습니다'));
   }
@@ -1665,7 +1667,8 @@
       svgIcon(ICON.mic), h('b', {}, '회의가 끝나면 녹음 파일을 여기에 놓으세요'), h('span', { class: 'nv-meta' }, '받아쓰기 · 발언자 식별 → 회의록 · 결정 · 분공 → 확정하면 메일'));
     return [
       drawerHead(s.title, `${dateLabel(s.starts_at)} ${slot(s)}${s.location ? ` · ${s.location}` : ''} · ${s.id}`,
-        h('span', { class: 'nv-st live' }, h('span', { class: 'nv-lamp alarm' }), `회의 중 · ${minutesSince(s.starts_at)}분째`)),
+        s.starts_at.slice(0, 10) < todayIso() ? h('span', { class: 'nv-st warn' }, '회의록 없음 · 녹음 대기')
+          : h('span', { class: 'nv-st live' }, h('span', { class: 'nv-lamp alarm' }), `회의 중 · ${minutesSince(s.starts_at)}분째`)),
       h('div', { class: 'nv-dw-body' },
         s.participants && s.participants.length ? section('참석 대상', h('div', { class: 'nv-who' }, s.participants.map((p) => h('span', { class: 'nv-person' }, avatar(p.name), p.name)))) : '',
         s.agenda && s.agenda.length ? section('안건', s.agenda.map((a) => h('div', { class: 'nv-row' }, h('span', { class: 'nv-tag' }, String(a.seq)), h('div', { class: 'nv-grow' }, a.title)))) : '',
