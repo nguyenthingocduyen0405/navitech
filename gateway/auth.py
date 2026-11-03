@@ -60,4 +60,5 @@ async def build_user_context(
         clearance=clearance,
         allowed_agents=agents,
         chat_id=chat_id,
+        user_id=entry.user_id if entry else None,
     )

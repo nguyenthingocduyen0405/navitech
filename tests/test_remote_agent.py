@@ -287,3 +287,25 @@ def test_every_agent_runs_on_the_group_system():
     agents = build_registry({a: a for a in BACKEND_AGENTS}, "http://agents-group:8001")
     assert set(agents) == {"super-agent", "advisory-agent", "news-agent", "meeting-agent"}
     assert {a.base_url for a in agents.values()} == {"http://agents-group:8001"}
+
+
+def test_transcript_correction_shows_what_was_fixed_or_that_it_failed(audit):
+    body = ndjson(
+        group({"type": "tool_start", "agent": "meeting", "tool": "correct_transcript",
+               "args": {"transcript_id": "TR-20261103-1A2B3C", "lines": 139, "auto": True}}),
+        group({"type": "tool_end", "agent": "meeting", "tool": "correct_transcript",
+               "result": {"auto": True, "summary": "변환본 139줄 중 12줄 교정 (예: 에젠드→에이전트)", "failed": []}}),
+        group({"type": "agent_start", "agent": "meeting", "request": "q"}),
+        group({"type": "tool_start", "agent": "meeting", "tool": "correct_transcript", "args": {"transcript_id": "TR-20261103-1A2B3C"}}),
+        group({"type": "tool_end", "agent": "meeting", "tool": "correct_transcript",
+               "result": {"summary": "변환본 139줄 중 3줄 교정, 모델 교정 실패: 줄 31–60: ConnectionError", "failed": ["줄 31–60"]}}),
+        group({"type": "agent_token", "agent": "meeting", "text": "회의록 초안을 저장했습니다."}),
+        group({"type": "done"}),
+    )
+    with make_client(FakeBackend(body), audit) as client:
+        resp = chat(client, "meeting-agent", "secretary@example.com")
+    reasoning = resp.json()["choices"][0]["message"]["reasoning_content"]
+    assert "그룹 미팅 에이전트: 녹음 변환본 교정 중 (139줄)" in reasoning
+    assert "그룹 미팅 에이전트: 변환본 교정 — 변환본 139줄 중 12줄 교정 (예: 에젠드→에이전트)" in reasoning
+    assert "correct_transcript 실행" in reasoning  # Agent가 다시 부른 경우는 보통 Tool처럼
+    assert "그룹 미팅 에이전트: 변환본 교정 실패 — 변환본 139줄 중 3줄 교정, 모델 교정 실패: 줄 31–60" in reasoning

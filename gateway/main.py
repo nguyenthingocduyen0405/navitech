@@ -23,6 +23,7 @@ from agents.registry import build_registry
 from gateway.audit import AuditEntry, AuditLog, PostgresAuditLog
 from gateway.auth import AuthError, build_user_context, check_api_key, verify_openwebui_jwt
 from gateway.desk import register_desk
+from gateway.voice_check import register_voice_check
 from gateway.directory import Directory, DirectoryUnavailable, KeycloakDirectory
 from gateway.permissions import Permissions
 from gateway.settings import Settings
@@ -234,5 +235,6 @@ def create_app(
         await audit.set_documents(entry_id, cited)
         return completion.full("".join(text), "\n".join(reasoning))
 
+    register_voice_check(app, settings, directory, permissions, audit, transport=desk_transport)  # /meetings/api/{endpoint}보다 먼저
     register_desk(app, settings, directory, permissions, audit, transport=desk_transport)
     return app

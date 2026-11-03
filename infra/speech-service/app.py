@@ -4,6 +4,11 @@
                                      (internal network only, Bearer SPEECH_API_KEY). A meeting transcript
                                      (speaker lines) is kept under an id shown on its first line
     GET  /internal/transcripts/{id}  that transcript for the Meeting Agent (internal network only, same key)
+    POST /internal/voiceprints/learn the Meeting Agent confirmed who an unnamed speaker ("화자 C") of a transcript was,
+                                     and that person agreed at the meeting's check-in: keep that voice as theirs
+    POST /internal/review            voice check (gateway /meetings/voice-check/): the same pipeline as a meeting
+    GET  /internal/review/{job}      upload, run in the background; kept in memory for an hour only — no transcript
+                                     is stored and no voice is learned (same key; the gateway checks who may use it)
     /voice/                          enrollment page behind Keycloak login (nginx routes /voice/ here)
     /voice/api/me | enroll | test    the page's API (session cookie)
 
@@ -15,6 +20,7 @@ from __future__ import annotations
 
 import base64
 import json
+from datetime import datetime
 import logging
 import os
 import re
@@ -52,6 +58,8 @@ ENROLL_CONSISTENCY = float(os.environ.get("ENROLL_CONSISTENCY", "0.55"))
 STATIC = Path(__file__).parent / "static"
 TRANSCRIPT_ID = re.compile(r"^TR-\d{8}-[0-9A-F]{6}$")
 PURGE_INTERVAL_SECONDS = 3600
+REVIEW_KEEP_SECONDS = 3600  # a voice check's result stays in memory this long after it is done
+REVIEW_MAX_PENDING = 2  # voice checks waiting or running at once (each holds its whole recording in memory)
 
 app = FastAPI(title="speech-service", docs_url=None, redoc_url=None, openapi_url=None)
 app.add_middleware(
@@ -91,7 +99,8 @@ def _authorized(request: Request) -> bool:
 
 @app.get("/health")
 def health() -> dict:
-    return {"ok": True, "stt_engine": speech.stt_engine(), "voiceprints": store.count(speech.model_name())}
+    return {"ok": True, "stt_engine": speech.stt_engine(), "voiceprints": store.count(speech.model_name()),
+            "diarization": speech.DIARIZATION, "diarization_methods": speech.diarization_methods()}
 
 
 # ---------------------------------------------------------------------------
@@ -114,6 +123,7 @@ async def transcriptions(
         result = await run_in_threadpool(speech.transcribe, data, file.filename or "audio", voiceprints, language)
     except speech.AudioError as e:
         return JSONResponse({"error": {"message": str(e)}}, status_code=400)
+    samples = result.pop("samples", {})
     if result.pop("labelled", False):
         try:
             tid = store.save_transcript(file.filename or "audio", result["duration"], result["engine"], result["turns"])
@@ -122,6 +132,10 @@ async def transcriptions(
         else:
             result["transcript_id"] = tid
             result["text"] = f"[transcript_id: {tid}]\n" + result["text"]
+            try:
+                store.save_samples(tid, speech.model_name(), samples)
+            except Exception:  # only the chance to learn these voices later is lost
+                log.exception("could not keep the unnamed voices")
     return result
 
 
@@ -136,6 +150,141 @@ def transcript(tid: str, request: Request):
     if found is None:
         return JSONResponse({"error": "not found"}, status_code=404)
     return found
+
+
+@app.post("/internal/voiceprints/learn")
+async def learn(request: Request):
+    """The Meeting Agent's user confirmed that `speaker` of `transcript_id` was this person, who agreed at the
+    meeting's QR check-in (consent_at). Result: learned · already_enrolled · too_short · expired."""
+    if not _authorized(request):
+        return JSONResponse({"error": "invalid API key"}, status_code=401)
+    body = await request.json()
+    tid, label = str(body.get("transcript_id") or ""), str(body.get("speaker") or "").strip()
+    user_sub, email = str(body.get("user_sub") or ""), str(body.get("email") or "")
+    try:
+        consent_at = datetime.fromisoformat(str(body.get("consent_at")))
+    except ValueError:
+        return JSONResponse({"error": "consent_at is required"}, status_code=400)
+    if not TRANSCRIPT_ID.match(tid) or not label or not user_sub or not email:
+        return JSONResponse({"error": "transcript_id, speaker, user_sub and email are required"}, status_code=400)
+    result = store.learn(tid, label, user_sub, email, str(body.get("display_name") or email), consent_at, speech.model_name())
+    log.info("learn %s %s → %s", tid, label, result)
+    return {"result": result}
+
+
+# ---------------------------------------------------------------------------
+# Voice check: how well the current models tell the speakers of a recording apart
+# ---------------------------------------------------------------------------
+
+_reviews: dict[str, dict] = {}
+_reviews_lock = threading.Lock()
+
+
+def speaker_summary(turns: list[dict], samples: dict, voiceprints: list[speech.Voiceprint]) -> list[dict]:
+    """Each speaker in speaking order: seconds and lines; a named one's score against its voiceprint, an unnamed
+    one's closest voiceprint (below the threshold, so not named) — what a reviewer needs to judge the threshold."""
+    out: dict[str, dict] = {}
+    for t in turns:
+        s = out.setdefault(t["speaker"], {"speaker": t["speaker"], "seconds": 0.0, "turns": 0, "_scored": []})
+        s["seconds"] += t["end"] - t["start"]
+        s["turns"] += 1
+        if t.get("score") is not None:
+            s["_scored"].append((t["score"], t["end"] - t["start"]))
+    for label, s in out.items():
+        scored = s.pop("_scored")
+        weight = sum(w for _, w in scored)
+        s["seconds"] = round(s["seconds"], 1)
+        s["named"] = label not in samples and not label.startswith(f"{speech.UNKNOWN} ")
+        if s["named"]:
+            s["score"] = round(sum(v * w for v, w in scored) / weight, 3) if weight else None
+        else:
+            ranked = speech.identify(samples[label][0], voiceprints) if label in samples else []
+            s["nearest"] = ranked[0][0].label if ranked else None
+            s["nearest_score"] = round(ranked[0][1], 3) if ranked else None
+    return list(out.values())
+
+
+def _run_review(job: dict, data: bytes, filename: str, method: str | None) -> None:
+    started = time.monotonic()
+    try:
+        voiceprints = store.all_voiceprints(speech.model_name())
+        def progress(stage: str, done: int, total: int) -> None:
+            job["progress"] = {"stage": stage, "done": done, "total": total}
+
+        result = speech.transcribe(data, filename, voiceprints, progress=progress, diarization=method)
+        job["result"] = {
+            "duration": result["duration"], "engine": result["engine"], "diarization": result["diarization"],
+            "turns": result["turns"],
+            "speakers": speaker_summary(result["turns"], result["samples"], voiceprints),
+            "voiceprints": len(voiceprints), "model": speech.model_name(),
+            "match_threshold": speech.MATCH_THRESHOLD, "cluster_threshold": speech.CLUSTER_THRESHOLD,
+            "took_seconds": round(time.monotonic() - started, 1),
+        }
+        job["status"] = "done"
+    except speech.AudioError as e:
+        job["status"], job["error"] = "error", str(e)
+    except Exception:
+        log.exception("voice check failed")
+        job["status"], job["error"] = "error", "녹음을 처리하지 못했습니다."
+    finally:
+        job["finished"] = time.time()
+    log.info("voice check %s for %s: %s in %.1fs", job["id"], job["owner"], job["status"], time.monotonic() - started)
+
+
+def _pending_reviews() -> int:
+    return sum(1 for j in _reviews.values() if j["status"] == "processing")
+
+
+def _purge_reviews() -> None:
+    now = time.time()
+    with _reviews_lock:
+        for job_id in [k for k, j in _reviews.items() if j.get("finished") and now - j["finished"] > REVIEW_KEEP_SECONDS]:
+            del _reviews[job_id]
+
+
+@app.post("/internal/review")
+async def review(request: Request, owner: str = "", filename: str = "audio", method: str = ""):
+    """The raw recording as the body; `owner` is the gateway's logged-in user, the only one who may read the result;
+    `method` how speakers are told apart (speech.DIARIZATION when empty)."""
+    if not _authorized(request):
+        return JSONResponse({"error": "invalid API key"}, status_code=401)
+    if not owner:
+        return JSONResponse({"error": "owner is required"}, status_code=400)
+    if method and method not in speech.diarization_methods():
+        return JSONResponse({"error": f"발언자를 나누는 방식 '{method}'을(를) 쓸 수 없습니다 (모델이 없음)."}, status_code=400)
+    _purge_reviews()
+    busy = JSONResponse({"error": "다른 녹음을 확인하는 중입니다. 끝난 뒤 다시 올려 주세요."}, status_code=429)
+    if _pending_reviews() >= REVIEW_MAX_PENDING:
+        return busy
+    data = await request.body()
+    if not data:
+        return JSONResponse({"error": "빈 파일입니다."}, status_code=400)
+    with _reviews_lock:
+        if _pending_reviews() >= REVIEW_MAX_PENDING:  # checked again: another upload may have finished arriving first
+            return busy
+        job = {"id": secrets.token_urlsafe(12), "owner": owner, "filename": filename[:200], "status": "processing",
+               "created": time.time()}
+        _reviews[job["id"]] = job
+    waiting = speech._JOB_LOCK.locked()  # a meeting upload (or another check) is being transcribed first
+    threading.Thread(target=_run_review, args=(job, data, filename, method or None), name=f"review-{job['id']}", daemon=True).start()
+    return {"job": job["id"], "waiting": waiting}
+
+
+@app.get("/internal/review/{job_id}")
+def review_status(job_id: str, request: Request, owner: str = ""):
+    if not _authorized(request):
+        return JSONResponse({"error": "invalid API key"}, status_code=401)
+    _purge_reviews()
+    job = _reviews.get(job_id)
+    if job is None or not owner or job["owner"] != owner:
+        return JSONResponse({"error": "결과가 없습니다. 1시간이 지났거나 다른 사용자가 올린 녹음입니다."}, status_code=404)
+    out = {"status": job["status"], "filename": job["filename"], "elapsed": round(time.time() - job["created"], 1),
+           "progress": job.get("progress")}  # None: waiting for an earlier recording to finish
+    if job["status"] == "done":
+        out["result"] = job["result"]
+    elif job["status"] == "error":
+        out["error"] = job["error"]
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -225,6 +374,7 @@ def me(request: Request) -> dict:
         "voiceprint": row and {
             "display_name": row["display_name"], "title": row["title"], "samples": row["samples"],
             "consent_at": store.iso(row["consent_at"]), "updated_at": store.iso(row["updated_at"]),
+            "source": row["source"],
             "outdated": row["model"] != speech.model_name(),
         },
         "enrolled_count": store.count(speech.model_name()),

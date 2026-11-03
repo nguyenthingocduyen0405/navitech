@@ -18,6 +18,24 @@
   rename();
 })();
 
+// QR 출석 화면(/meetings/checkin/)이나 목소리 구분 확인 화면(/meetings/voice-check/)에서 로그인하러 왔으면,
+// 로그인을 마친 뒤 그 화면으로 돌려보낸다 (같은 사이트 주소만).
+(() => {
+  const NEXT = 'navitech.checkin.next';
+  const back = () => {
+    const next = localStorage.getItem(NEXT);
+    if (!next) return true;
+    if (!localStorage.getItem('token') || location.pathname.startsWith('/auth')) return false;
+    localStorage.removeItem(NEXT);
+    if (/^\/meetings\/(checkin|voice-check)\/(\?|$)/.test(next)) location.replace(next);
+    return true;
+  };
+  if (!back()) {
+    const timer = setInterval(() => { if (back()) clearInterval(timer); }, 500);
+    setTimeout(() => clearInterval(timer), 120000);
+  }
+})();
+
 // 회의지원 Agent 채팅에서만: 녹음 시작 효과, 녹음 중 표시, 녹음을 마치면(✓) 글로 옮긴 회의록을 자동으로 보냄.
 // 회의 녹음(speech-service가 첫 줄에 [transcript_id: …]를 붙인 여러 화자 · 긴 녹음)은 녹음 시각을 붙여 회의록 초안을 요청하고,
 // 짧은 음성 입력은 말한 그대로 보낸다. 다른 Agent 채팅의 음성 입력은 Open WebUI 기본 동작 그대로 둔다.
@@ -390,7 +408,7 @@
   };
   function askMinutes(up) {
     if (!document.getElementById('chat-input') || !attachedChip(up.name)) return false;
-    const head = `회의 녹음 파일을 올렸습니다. 첨부한 녹음의 transcript로 회의록 초안을 작성해 주세요. 녹음 파일: ${up.name}`;
+    const head = `회의 녹음 파일을 올렸습니다. 첨부한 녹음의 transcript로 회의록 초안을 작성해 주세요. 녹음 파일: ${up.name}${up.checkin ? ` · 출석 확인: ${up.checkin}` : ''}`;
     clearInterval(up.timer);
     upPill(up, '회의록 초안 작성을 요청하는 중', up.name);
     let steps = 0;
@@ -432,6 +450,7 @@
     style();
     const up = { started: Date.now(), duration: null, name: file.name };
     uploads.add(up);
+    if (inMeetingChat()) openCheckin(up);
     durationOf(file).then((d) => { up.duration = d; });
     upPill(up, '녹음 파일을 올리는 중', `${file.name} · ${(file.size / 1048576).toFixed(file.size < 10485760 ? 1 : 0)}MB`);
     try {
@@ -446,6 +465,66 @@
       throw e;
     }
   };
+  // ---------------------------------------------------------------------------
+  // 출석 확인 QR: 회의지원 채팅에 녹음을 올리면 글로 옮기는 동안 화면에 QR을 띄운다. 참석자가 휴대폰으로 찍으면 회사 계정으로
+  // 출석하고(말하지 않은 사람도 회의록 참석자가 됨), 회의록 요청에 출석 확인 코드를 함께 보낸다. QR은 30초마다 바뀐다.
+  // ---------------------------------------------------------------------------
+  const CHECKIN_SHOW_MS = 30 * 60 * 1000;
+
+  async function openCheckin(up) {
+    try {
+      const d = await api('checkin', { action: 'open', source_name: up.name });
+      up.checkin = d.code;
+      checkinPanel(d);
+    } catch { /* 출석 확인 없이도 회의록은 만든다 */ }
+  }
+
+  function svgNode(markup) {
+    const doc = new DOMParser().parseFromString(markup, 'image/svg+xml');
+    const svg = doc.documentElement;
+    return svg && svg.nodeName === 'svg' ? document.importNode(svg, true) : h('div', { class: 'nv-err' }, 'QR을 그리지 못했습니다');
+  }
+
+  function checkinPanel(first) {
+    cardStyle();
+    document.querySelectorAll('.nv-qr').forEach((n) => n.remove());
+    const qr = h('div', { class: 'nv-qr-code', title: '휴대폰 카메라로 찍으세요' });
+    const count = h('div', { class: 'nv-strong' });
+    const names = h('div', { class: 'nv-qr-names' });
+    const timer = h('div', { class: 'nv-meta' });
+    let link = '';
+    let left = 0;
+    let poll;
+    const stop = () => { clearInterval(poll); panel.remove(); };
+    const render = (d) => {
+      if (d.link && d.link !== link) { link = d.link; qr.replaceChildren(svgNode(d.qr_svg)); }
+      if (!d.open) { qr.replaceChildren(h('div', { class: 'nv-meta', style: 'padding:24px 8px;text-align:center' }, '출석 확인이 끝났습니다')); }
+      left = d.valid_for || 0;
+      count.textContent = `출석 ${d.count}명`;
+      names.replaceChildren(...(d.attendees || []).map((a) => h('span', { class: 'nv-chip' }, a.name)));
+    };
+    const close = h('button', { class: 'nv-btn small', type: 'button', onclick: act(async () => {
+      render(await api('checkin', { action: 'close', code: first.code }));
+      clearInterval(poll);
+    }) }, '출석 마감');
+    const panel = h('div', { class: 'nv-qr', role: 'dialog', 'aria-label': '참석자 출석 확인' },
+      h('div', { class: 'nv-qr-head' }, h('div', { class: 'nv-strong' }, '참석자 출석 확인'),
+        h('button', { class: 'nv-qr-x', type: 'button', title: '닫기 (출석은 계속 받음)', onclick: stop }, '×')),
+      h('div', { class: 'nv-meta' }, '회의에 있던 분은 휴대폰 카메라로 찍어 주세요. 말하지 않은 분도 회의록 참석자가 되어 할 일과 메일을 받습니다.'),
+      qr, h('div', { class: 'nv-qr-foot' }, h('div', {}, count, timer), close), names);
+    document.body.append(panel);
+    render(first);
+    const started = Date.now();
+    let ticks = 0;
+    poll = setInterval(async () => {
+      if (!panel.isConnected || Date.now() - started > CHECKIN_SHOW_MS) { stop(); return; }
+      left = Math.max(0, left - 1);
+      timer.textContent = link ? `QR이 ${left}초 뒤 바뀝니다` : '';
+      if (++ticks % 4 && left > 0) return; // 4초마다, 또는 QR이 바뀔 때 다시 묻는다
+      try { render(await api('checkin', { action: 'status', code: first.code })); } catch { /* 다음에 다시 */ }
+    }, 1000);
+  }
+
   window.addEventListener('beforeunload', (e) => {
     if (!uploads.size) return;
     e.preventDefault();
@@ -514,7 +593,20 @@
   .nv-filter{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 4px}
   .nv-filter button{height:26px;padding:0 10px;border-radius:999px;border:1px solid var(--nv-line);background:var(--nv-bg);color:var(--nv-muted);font-size:12px;font-weight:700;cursor:pointer}
   .nv-filter button.on{background:var(--nv-brand);border-color:transparent;color:#fff}
-  .nv-hidden-block{display:none!important}`;
+  .nv-hidden-block{display:none!important}
+  .nv-qr{position:fixed;right:20px;bottom:120px;z-index:9998;width:290px;padding:14px;border-radius:18px;background:var(--nv-bg);
+    border:1px solid var(--nv-line);box-shadow:0 18px 50px rgba(0,0,0,.2);font-size:13px;line-height:1.45;text-align:left}
+  .nv-qr-head,.nv-qr-foot{display:flex;justify-content:space-between;align-items:center;gap:8px}
+  .nv-qr-x{border:0;background:none;color:var(--nv-muted);font-size:20px;line-height:1;cursor:pointer;padding:0 2px}
+  .nv-qr-code{background:#fff;border-radius:12px;padding:6px;margin:10px 0}
+  .nv-qr-code svg{display:block;width:100%;height:auto}
+  .nv-qr-names{display:flex;flex-wrap:wrap;gap:4px;margin-top:8px}
+  @media (max-width:640px){.nv-qr{left:12px;right:12px;width:auto;bottom:96px}}
+  .nv-who{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 2px}
+  .nv-who .nv-chip{gap:5px}
+  .nv-chip.ok{color:#0f9d58;background:rgba(15,157,88,.12)}
+  .nv-pick{margin-top:6px}
+  .nv-pick-list{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}`;
 
   function cardStyle() {
     if (document.getElementById('nv-card-style')) return;
@@ -638,7 +730,7 @@
   const named = (owner) => !!owner && !UNNAMED.test(owner.trim());
 
   // 할 일 한 줄: 완료 · 진행 중, 담당 · 기한 지정 (확정된 회의록의 할 일이면 새 담당자에게 업무 배정 메일이 감)
-  function itemRow(it, reload, withMeeting, open = false) {
+  function itemRow(it, reload, withMeeting, open = false, splittable = false) {
     const [due, tone] = dueText(it.due);
     const done = it.status === 'done';
     const owner = h('input', { class: 'nv-input', value: named(it.owner) ? it.owner : '',
@@ -662,6 +754,8 @@
           withMeeting && it.meeting ? ` · ${it.meeting.title}` : '', ` · ${ITEM[it.status] || it.status}`),
         editor),
       done ? h('span', { class: 'nv-chip final' }, '완료') : h('div', { class: 'nv-btns' },
+        splittable && !it.owner ? h('button', { class: 'nv-btn small', type: 'button', title: '각자 하는 일: 참석자마다 한 건씩 만들고 이 항목은 지웁니다',
+          onclick: act(async () => { const out = await api('items', { item_id: it.id, action: 'split' }); notice(`참석자 ${out.items.length}명에게 나눴습니다`); reload(); }) }, '참석자마다 나누기') : '',
         h('button', { class: 'nv-btn small', type: 'button', onclick: () => { editor.hidden = !editor.hidden; } }, '담당·기한'),
         it.status === 'open' ? h('button', { class: 'nv-btn small', type: 'button', onclick: act(async () => { await api('items', { item_id: it.id, status: 'in_progress' }); reload(); }) }, '진행 중') : '',
         h('button', { class: 'nv-btn small', type: 'button', onclick: act(async () => { await api('items', { item_id: it.id, status: 'done' }); doneItems.set(it.id, { ...it, status: 'done' }); reload(); }) }, '완료')));
@@ -691,6 +785,95 @@
     });
   }
 
+  // 사람 고르기: 이 회의 사람 빠른 선택 + 회사 계정 찾기 (이름 · 이메일 일부)
+  function personPicker(quick, onPick, placeholder) {
+    const list = h('div', { class: 'nv-pick-list' });
+    const input = h('input', { class: 'nv-input', type: 'search', placeholder });
+    const pick = (p) => h('button', { class: 'nv-btn small', type: 'button', onclick: act(async () => { await onPick(p); }) },
+      p.name, p.email ? h('span', { class: 'nv-meta' }, ` ${p.email}`) : '');
+    const showQuick = () => list.replaceChildren(...quick.map(pick));
+    let timer;
+    input.addEventListener('input', () => {
+      clearTimeout(timer);
+      const q = input.value.trim();
+      if (!q) { showQuick(); return; }
+      timer = setTimeout(async () => {
+        try {
+          const d = await api('people', { query: q });
+          list.replaceChildren(...(d.people.length ? d.people.map(pick) : [h('span', { class: 'nv-meta' }, '회사 계정에서 찾지 못했습니다')]));
+        } catch (e) { list.replaceChildren(h('span', { class: 'nv-err' }, e.message)); }
+      }, 250);
+    });
+    showQuick();
+    return h('div', { class: 'nv-pick' }, input, list);
+  }
+
+  const VOICE = {
+    learned: '목소리를 익혔습니다. 다음 회의부터 이름으로 적습니다.',
+    no_consent: '출석할 때 목소리 학습에 동의하지 않아 목소리는 익히지 않았습니다.',
+    too_short: '발언이 짧아 목소리는 익히지 않았습니다.',
+    expired: '녹음한 지 오래되어 목소리는 익히지 않았습니다.',
+  };
+
+  // 참석자 확인: QR 출석 · 발언 여부, 이름을 정할 목소리('화자 C'), 말하지 않은 참석자 더하기
+  function attendanceSection(d, reload) {
+    const a = d.attendance;
+    const m = d.meeting;
+    if (!a || (!a.people.length && !a.unknown_speakers.length)) return '';
+    const editable = m.status !== 'final' && d.can_edit;
+    const quick = a.people.filter((p) => !p.spoke).concat(a.people.filter((p) => p.spoke))
+      .map((p) => ({ name: p.name.replace(/\s*\([^()]*\)$/, ''), email: p.email }));
+    const assign = (label) => async (p) => {
+      const out = await api('attendance', { action: 'assign', meeting_id: m.id, speaker: label, person: p });
+      notice(`${label} = ${out.person}${VOICE[out.voice] ? ` · ${VOICE[out.voice]}` : ''}`);
+      reload();
+    };
+    const people = a.people.map((p) => h('span', { class: `nv-chip ${p.checked_in ? 'ok' : ''}`, title: p.email || '' },
+      p.name, p.checked_in ? ' · QR' : '', a.recorded ? (p.spoke ? ' · 발언' : ' · 발언 없음') : '',
+      editable && !p.checked_in && !p.spoke ? h('span', { role: 'button', tabindex: '0', title: '참석자에서 빼기', style: 'cursor:pointer;margin-left:2px',
+        onclick: act(async () => { await api('attendance', { action: 'remove', meeting_id: m.id, person: { name: p.name, email: p.email } }); reload(); }) }, '×') : ''));
+    const voices = a.unknown_speakers.map((v) => {
+      const sure = a.suggestion && a.suggestion.speaker === v.label ? a.suggestion : null;
+      const picker = h('div', { hidden: !!sure }, editable ? personPicker(quick, assign(v.label), `${v.label}은(는) 누구인가요? 이름 · 이메일로 찾기`) : '');
+      return h('div', { class: 'nv-row top' },
+        h('span', { class: 'nv-tag' }, v.label),
+        h('div', { class: 'nv-grow' },
+          h('div', { class: 'nv-meta' }, `발언 ${v.turns}번 · ${v.seconds}초 · ${v.first}`),
+          sure ? h('div', {}, h('span', { class: 'nv-warn' }, `출석했지만 목소리가 없는 사람은 ${sure.name}뿐입니다. ${sure.name}인가요?`)) : '',
+          picker),
+        editable ? h('div', { class: 'nv-btns' },
+          sure ? h('button', { class: 'nv-btn small primary', type: 'button', onclick: act(async () => { await assign(v.label)({ name: sure.name, email: sure.email }); }) }, `${sure.name} 맞음`) : '',
+          sure ? h('button', { class: 'nv-btn small', type: 'button', onclick: () => { picker.hidden = !picker.hidden; } }, '다른 사람') : '') : '');
+    });
+    const adder = h('div', { hidden: true }, personPicker([], async (p) => {
+      await api('attendance', { action: 'add', meeting_id: m.id, person: p });
+      reload();
+    }, '말하지 않은 참석자 찾기 — 이름 · 이메일'));
+    const checked = a.people.filter((p) => p.checked_in).length;
+    const title = `참석자 확인 — ${a.people.length}명${checked ? ` · QR 출석 ${checked}명` : ''}${a.silent.length ? ` · 말하지 않은 참석자 ${a.silent.length}명` : ''}`;
+    return h('div', { class: 'nv-sec' },
+      h('div', { class: 'nv-sec-title' }, title),
+      h('div', { class: 'nv-who' }, people),
+      voices.length ? h('div', { class: 'nv-meta', style: 'margin-top:8px' }, '목소리로 이름을 찾지 못한 발언자 — 누구인지 정하면 발언 · 담당이 그 사람으로 바뀝니다') : '',
+      voices,
+      editable ? h('div', { style: 'margin-top:6px' }, h('button', { class: 'nv-btn small', type: 'button', onclick: () => { adder.hidden = !adder.hidden; } }, '참석자 더하기'), adder) : '');
+  }
+
+  // 이전 회의에서 이어지는 일: 이번 참석자들이 맡아 아직 열린 일, 같은 사람들이 있던 회의의 미결 쟁점
+  function recallSection(d) {
+    const r = d.recall;
+    if (!r || (!r.open_items.length && !r.open_issues.length)) return '';
+    const from = (x) => `${x.meeting.title} (${x.meeting.date.slice(5).replace('-', '/')})`;
+    return section(`이전 회의에서 이어지는 일 ${r.open_items.length + r.open_issues.length}건`, [
+      ...r.open_items.map((it) => h('div', { class: 'nv-row top' }, h('span', { class: 'nv-tag' }, '할 일'),
+        h('div', { class: 'nv-grow' }, h('div', {}, it.text), h('div', { class: 'nv-meta' }, `${it.owner} · `,
+          h('span', { class: it.overdue_days ? 'nv-danger' : '' }, it.overdue_days ? `${it.overdue_days}일 지남` : (it.due ? `기한 ${it.due}` : '기한 없음')),
+          ` · ${from(it)}`)))),
+      ...r.open_issues.map((x) => h('div', { class: 'nv-row top' }, h('span', { class: 'nv-tag' }, '쟁점'),
+        h('div', { class: 'nv-grow' }, h('div', {}, x.statement), h('div', { class: 'nv-meta' }, from(x))))),
+    ]);
+  }
+
   function minutesView(d, reload) {
     const m = d.meeting;
     const open = (d.flags || []).filter((f) => f.status === 'open');
@@ -702,18 +885,20 @@
         h('span', { class: `nv-tag ${['decision', 'resolution', 'criterion'].includes(x.kind) ? 'brand' : ''}` }, KIND[x.kind] || x.kind),
         h('div', { class: 'nv-grow' }, h('div', {}, x.statement), x.speaker ? h('div', { class: 'nv-meta' }, x.speaker) : '')))) : '',
       m.open_issues.length ? section('미결 쟁점', m.open_issues.map((x) => h('div', { class: 'nv-row' }, h('div', { class: 'nv-grow' }, x.statement)))) : '',
-      m.open_action_items.length ? section('열린 할 일', m.open_action_items.map((it) => itemRow(it, reload))) : '');
+      m.open_action_items.length ? section('열린 할 일', m.open_action_items.map((it) => itemRow(it, reload, false, false, m.status !== 'final' && d.can_edit))) : '');
     const more = h('button', { class: 'nv-btn', type: 'button', onclick: () => { details.hidden = !details.hidden; more.textContent = details.hidden ? '자세히' : '접기'; } }, '자세히');
     return [
       head(h('span', {}, m.title, m.classification >= 3 ? h('span', { class: 'nv-chip secret' }, LEVEL[m.classification]) : ''),
         `${when(m.date, m.time)} · ${m.id}`,
         h('span', { class: `nv-chip ${m.status === 'final' ? 'final' : 'draft'}` }, m.status === 'final' ? '확정' : '초안')),
-      people.length ? h('div', { class: 'nv-people' }, `참석 ${people.join(', ')}`) : '',
+      people.length && !d.attendance ? h('div', { class: 'nv-people' }, `참석 ${people.join(', ')}`) : '',
       m.summary ? h('div', { class: 'nv-summary' }, m.summary) : '',
       h('div', { class: 'nv-stats' }, stat('결정', decided.length), stat('열린 할 일', m.open_action_items.length),
         m.open_issues.length ? stat('미결 쟁점', m.open_issues.length) : '', open.length ? stat('위험 발언', open.length, 'draft') : ''),
       open.length ? section(`위험 발언 검토 ${open.length}건 — 검토해야 확정할 수 있습니다`, flagRows(m.id, open, reload)) : '',
-      missing.length ? section(`담당 · 기한을 정해야 확정할 수 있습니다 (${missing.length}건)`, missing.map((it) => itemRow(it, reload, false, true))) : '',
+      attendanceSection(d, reload),
+      missing.length ? section(`담당 · 기한을 정해야 확정할 수 있습니다 (${missing.length}건)`, missing.map((it) => itemRow(it, reload, false, true, m.status !== 'final' && d.can_edit))) : '',
+      recallSection(d),
       details,
       h('div', { class: 'nv-actions' }, more,
         h('button', { class: 'nv-btn', type: 'button', onclick: (e) => download(e.currentTarget, m.id, 'minutes') }, '회의록 PDF'),

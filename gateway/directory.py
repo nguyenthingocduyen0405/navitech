@@ -8,6 +8,9 @@ Gateway가 Keycloak에 직접 물어봅니다. 결과는 잠시 캐시되며, �
 메일을 보낼 때 그 사람이 로그인할 때 등록한 이메일을 여기서 찾습니다. 회의지원 Agent는 찾은 주소로
 승인 없이 메일을 보내므로, 관리자가 그룹을 배정한 계정만 답합니다: 자가 가입 계정은 이름을 마음대로
 정할 수 있어서, 임원과 같은 이름으로 가입해 회의록을 받아 가는 일을 막기 위해서입니다.
+
+회의 카드에서 참석자를 고를 때는 이름 · 이메일 일부로 찾습니다 (`find_people`, 같은 조건의 계정만).
+한국 이름은 성 + 이름을 붙여 씁니다 (이서연): 회의록 · 녹음에서 불린 이름과 같은 사람으로 맞춰지도록.
 """
 
 import re
@@ -23,6 +26,7 @@ class DirectoryUser:
     email: str
     name: str
     groups: frozenset[str]
+    user_id: str | None = None  # Keycloak 사용자 id (회의 출석 → 그 사람의 voiceprint 키)
 
 
 @dataclass(frozen=True)
@@ -36,6 +40,17 @@ def name_key(text: str) -> str:
     return re.sub(r"\s+", "", text or "").lower()
 
 
+_HANGUL = re.compile(r"[\uac00-\ud7a3]")
+
+
+def person_name(first: str | None, last: str | None, username: str | None) -> str:
+    """표시 이름: 한국 이름은 성+이름 (이서연), 그 밖에는 이름 성 (Duyen Nguyen). 이름이 없으면 로그인 id."""
+    first, last = (first or "").strip(), (last or "").strip()
+    if _HANGUL.search(first + last):
+        return last + first
+    return " ".join(filter(None, [first, last])) or (username or "")
+
+
 def name_keys(first: str | None, last: str | None, username: str | None) -> set[str]:
     """한 사용자를 부를 수 있는 이름: 성+이름(한국어 순서), 이름+성, 로그인 id."""
     first, last = first or "", last or ""
@@ -46,6 +61,8 @@ class Directory(Protocol):
     async def lookup(self, email: str) -> DirectoryUser | None: ...
 
     async def search_people(self, name: str) -> list[DirectoryPerson]: ...
+
+    async def find_people(self, query: str, limit: int) -> list[DirectoryPerson]: ...
 
     async def close(self) -> None: ...
 
@@ -119,10 +136,28 @@ class KeycloakDirectory:
             assigned = [u for u in named if await self._has_groups(u["id"])]
         except httpx.HTTPError as exc:
             raise DirectoryUnavailable(str(exc)) from exc
-        return [
-            DirectoryPerson(" ".join(filter(None, [u.get("lastName"), u.get("firstName")])) or u["username"], u["email"], u["id"])
-            for u in assigned
-        ]
+        return [DirectoryPerson(person_name(u.get("firstName"), u.get("lastName"), u.get("username")), u["email"], u["id"])
+                for u in assigned]
+
+    async def find_people(self, query: str, limit: int) -> list[DirectoryPerson]:
+        """이름 · 이메일 · 로그인 id에 검색어가 든 활성 사용자 (관리자가 그룹을 배정한 계정만, 이름 순)."""
+        key = name_key(query)
+        if not key:
+            return []
+        try:
+            users = await self._all_users()
+            hits = [u for u in users if u.get("enabled") and u.get("email") and (
+                any(key in k for k in name_keys(u.get("firstName"), u.get("lastName"), u.get("username")))
+                or key in u["email"].lower())]
+            found = []
+            for u in sorted(hits, key=lambda u: person_name(u.get("firstName"), u.get("lastName"), u.get("username"))):
+                if len(found) >= limit:
+                    break
+                if await self._has_groups(u["id"]):
+                    found.append(DirectoryPerson(person_name(u.get("firstName"), u.get("lastName"), u.get("username")), u["email"], u["id"]))
+        except httpx.HTTPError as exc:
+            raise DirectoryUnavailable(str(exc)) from exc
+        return found
 
     async def _has_groups(self, user_id: str) -> bool:
         headers = {"Authorization": f"Bearer {await self._admin_token()}"}
@@ -152,5 +187,5 @@ class KeycloakDirectory:
         kc_user = matches[0]
         resp = await self._http.get(f"{base}/{kc_user['id']}/groups", headers=headers)
         resp.raise_for_status()
-        name = " ".join(filter(None, [kc_user.get("firstName"), kc_user.get("lastName")])) or kc_user["username"]
-        return DirectoryUser(email=email, name=name, groups=frozenset(g["name"] for g in resp.json()))
+        name = person_name(kc_user.get("firstName"), kc_user.get("lastName"), kc_user["username"])
+        return DirectoryUser(email=email, name=name, groups=frozenset(g["name"] for g in resp.json()), user_id=kc_user["id"])

@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>회의 출석 · Navitech</title>
+<style>
+  :root { --bg:#f5f5f7; --card:#fff; --ink:#111827; --muted:#6b7280; --line:rgba(0,0,0,.09); --brand:#5b5bd6; --ok:#0f9d58; --warn:#c2410c; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#111113; --card:#1b1b1d; --ink:#f3f4f6; --muted:#9ca3af; --line:rgba(255,255,255,.1); --brand:#8b8cf8; --ok:#34d399; --warn:#fb923c; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; min-height:100vh; background:var(--bg); color:var(--ink);
+    font:16px/1.55 -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif; }
+  main { max-width:440px; margin:0 auto; padding:28px 16px 40px; }
+  .brand { font-size:13px; font-weight:700; color:var(--muted); letter-spacing:.02em; margin-bottom:14px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:18px; padding:22px 20px; }
+  h1 { font-size:22px; margin:0 0 6px; letter-spacing:-.01em; }
+  .muted { color:var(--muted); font-size:14px; }
+  .mark { width:56px; height:56px; border-radius:50%; display:grid; place-items:center; font-size:28px; margin-bottom:14px;
+    background:rgba(91,91,214,.12); color:var(--brand); }
+  .mark.ok { background:rgba(15,157,88,.13); color:var(--ok); }
+  .mark.warn { background:rgba(234,88,12,.12); color:var(--warn); }
+  .who { margin:14px 0 2px; padding:12px 14px; border-radius:12px; background:var(--bg); font-size:15px; }
+  .who b { display:block; font-size:17px; }
+  button { width:100%; height:48px; margin-top:16px; border:0; border-radius:12px; background:var(--brand); color:#fff;
+    font-size:16px; font-weight:700; cursor:pointer; }
+  .consent { margin-top:18px; padding-top:16px; border-top:1px solid var(--line); }
+  .consent label { display:flex; gap:10px; align-items:flex-start; font-size:15px; font-weight:600; cursor:pointer; }
+  .consent input { width:20px; height:20px; margin-top:2px; flex:none; accent-color:var(--brand); }
+  details { margin-top:10px; font-size:13px; color:var(--muted); }
+  summary { cursor:pointer; }
+  dl { margin:8px 0 0; display:grid; grid-template-columns:auto 1fr; gap:4px 10px; }
+  dt { font-weight:700; } dd { margin:0; }
+  .saved { font-size:13px; margin-top:8px; min-height:18px; }
+  [hidden] { display:none !important; }
+</style>
+</head>
+<body>
+<main>
+  <div class="brand">Navitech 회의지원</div>
+  <section class="card">
+    <div class="mark" id="mark">…</div>
+    <h1 id="title">회의 출석</h1>
+    <p class="muted" id="msg">확인하는 중입니다…</p>
+    <div class="who" id="who" hidden></div>
+    <button type="button" id="login" hidden>회사 계정으로 로그인</button>
+    <div class="consent" id="consent-box" hidden>
+      <label><input type="checkbox" id="consent"> 이 회의 녹음에서 내 목소리를 익혀도 됩니다 (선택)</label>
+      <div class="muted" style="margin:6px 0 0 30px">동의하면, 회의록에서 '화자 A'로 나온 목소리가 나로 확인될 때 그 목소리를 익혀 다음 회의부터 이름으로 적습니다.</div>
+      <details>
+        <summary>민감정보(생체인식정보) 수집·이용 동의 내용</summary>
+        <dl>
+          <dt>수집 항목</dt><dd>이 회의 녹음에서 내 발언의 목소리 특징값(voiceprint, 숫자 벡터). 녹음 원본은 저장하지 않습니다.</dd>
+          <dt>이용 목적</dt><dd>회의 녹음 transcript와 회의록에서 발언자 식별</dd>
+          <dt>보유 기간</dt><dd>본인이 목소리 등록 페이지(/voice/)에서 삭제할 때까지 (퇴사 시 삭제). 누구인지 확인되지 않은 목소리는 7일 뒤 삭제됩니다.</dd>
+          <dt>동의 거부</dt><dd>거부해도 출석은 그대로 기록되며, 회의록에는 이름 대신 '화자 A'처럼 표시될 수 있습니다.</dd>
+        </dl>
+      </details>
+      <div class="saved muted" id="saved"></div>
+    </div>
+  </section>
+</main>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const params = new URLSearchParams(location.search);
+  const code = params.get('c');
+  const token = params.get('t');
+  const NEXT = 'navitech.checkin.next'; // 로그인한 뒤 Open WebUI 화면(loader.js)이 이 주소로 돌려보냄
+
+  function show(state, title, msg) {
+    $('mark').className = `mark ${state}`;
+    $('mark').textContent = state === 'ok' ? '✓' : state === 'warn' ? '!' : '…';
+    $('title').textContent = title;
+    $('msg').textContent = msg;
+  }
+
+  function login() {
+    localStorage.setItem(NEXT, location.pathname + location.search);
+    location.href = '/auth';
+  }
+  $('login').onclick = login;
+
+  async function call(consent) {
+    const res = await fetch('/meetings/api/checkin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
+      body: JSON.stringify({ action: 'join', code, token, voice_consent: consent }),
+    });
+    return { status: res.status, data: await res.json().catch(() => ({})) };
+  }
+
+  async function join(consent = null) {
+    if (!code) return show('warn', 'QR을 다시 찍어 주세요', '출석 주소가 올바르지 않습니다.');
+    if (!localStorage.getItem('token')) {
+      show('', '로그인이 필요합니다', '회사 계정으로 한 번 로그인하면, 다음부터는 QR만 찍으면 출석됩니다.');
+      $('login').hidden = false;
+      return;
+    }
+    let out;
+    try { out = await call(consent); } catch {
+      return show('warn', '연결할 수 없습니다', '네트워크를 확인하고 QR을 다시 찍어 주세요.');
+    }
+    const { status, data } = out;
+    if (status === 401) {
+      show('', '다시 로그인해 주세요', '로그인이 만료되었습니다.');
+      $('login').hidden = false;
+      return;
+    }
+    if (status !== 200 || !data.ok) {
+      $('consent-box').hidden = true;
+      return show('warn', data.expired ? 'QR이 바뀌었습니다' : '출석하지 못했습니다', data.error || `요청 실패 (HTTP ${status})`);
+    }
+    $('login').hidden = true;
+    const at = new Date(data.checked_in_at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+    show('ok', '출석했습니다', data.meeting ? `회의: ${data.meeting}` : (data.source_name ? `녹음: ${data.source_name}` : '회의록에 참석자로 기록됩니다.'));
+    $('who').hidden = false;
+    $('who').replaceChildren(Object.assign(document.createElement('b'), { textContent: data.name }), `${data.email} · ${at}`);
+    $('consent-box').hidden = false;
+    $('consent').checked = !!data.voice_consent;
+    if (consent !== null) $('saved').textContent = data.voice_consent ? '목소리 학습에 동의했습니다.' : '동의를 철회했습니다.';
+  }
+
+  $('consent').onchange = (e) => { e.target.disabled = true; join(e.target.checked).finally(() => { e.target.disabled = false; }); };
+  join();
+})();
+</script>
+</body>
+</html>

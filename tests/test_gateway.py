@@ -19,7 +19,7 @@ PERMISSIONS_FILE = Path(__file__).resolve().parents[1] / "config" / "permissions
 
 USERS = {
     "ceo@example.com": DirectoryUser("ceo@example.com", "CEO", frozenset({"executive"})),
-    "secretary@example.com": DirectoryUser("secretary@example.com", "간사", frozenset({"secretary"})),
+    "secretary@example.com": DirectoryUser("secretary@example.com", "간사", frozenset({"secretary"}), "kc-secretary"),
     "staff@example.com": DirectoryUser("staff@example.com", "실무자", frozenset({"staff"})),
     "dev@example.com": DirectoryUser("dev@example.com", "개발자", frozenset({"developer"})),
     "nogroup@example.com": DirectoryUser("nogroup@example.com", "No Group", frozenset()),
@@ -33,6 +33,10 @@ class FakeDirectory:
     async def search_people(self, name):
         people = [DirectoryPerson("이서연", "seoyeon@example.com", "kc-1"), DirectoryPerson("박지훈", "jihoon@example.com", "kc-2")]
         return [p for p in people if p.name == name.replace(" ", "")]
+
+    async def find_people(self, query, limit):
+        people = [DirectoryPerson(u.name, u.email, u.user_id or "") for u in USERS.values() if u.groups]
+        return [p for p in people if query in p.name or query in p.email][:limit]
 
     async def close(self):
         pass
@@ -219,7 +223,7 @@ def test_mail_recipients_come_only_from_accounts_an_admin_assigned():
         finally:
             await directory.close()
 
-    assert asyncio.run(search("이서연")) == [DirectoryPerson("이 서연", "seoyeon@example.com", "kc-1")]
+    assert asyncio.run(search("이서연")) == [DirectoryPerson("이서연", "seoyeon@example.com", "kc-1")]
     assert asyncio.run(search("박지훈")) == []
 
 

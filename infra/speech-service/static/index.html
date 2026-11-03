@@ -213,7 +213,8 @@ async function loadStatus() {
     const p = document.createElement("div");
     p.innerHTML = `<div class="notice ok"></div><p class="muted" style="margin:10px 0"></p>`;
     p.querySelector(".notice").textContent = `등록됨 — 회의록에 "${v.title ? v.display_name + " (" + v.title + ")" : v.display_name}"(으)로 표시됩니다.`;
-    p.querySelector("p").textContent = `마지막 등록: ${new Date(v.updated_at).toLocaleString("ko-KR")} · 동의 시각: ${new Date(v.consent_at).toLocaleString("ko-KR")}`;
+    p.querySelector("p").textContent = `마지막 등록: ${new Date(v.updated_at).toLocaleString("ko-KR")} · 동의 시각: ${new Date(v.consent_at).toLocaleString("ko-KR")}`
+      + (v.source === "meeting" ? ` · 회의 녹음에서 익힌 목소리 (회의 ${v.samples}건). 아래에서 세 문장을 읽어 등록하면 더 정확해집니다.` : "");
     const del = document.createElement("button");
     del.className = "danger"; del.textContent = "내 음성 정보 삭제";
     del.onclick = async () => {

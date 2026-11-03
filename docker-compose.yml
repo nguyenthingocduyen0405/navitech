@@ -17,6 +17,7 @@ x-llm-env: &llm-env
   LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
   OLLAMA_API_KEY: ${OLLAMA_API_KEY:-}
   OLLAMA_MODEL: ${OLLAMA_MODEL:-deepseek-v4.1-flash}
+  OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-https://ollama.com}
   OPENAI_API_KEY: ${OPENAI_API_KEY:-}
   OPENAI_MODEL: ${OPENAI_MODEL:-}
   OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
@@ -36,6 +37,8 @@ x-meetings-env: &meetings-env
   INTERNAL_API_KEY: ${INTERNAL_API_KEY}
   # 승인된 메일 발송 · 매일 09:00 기한 알림 · 만료 transcript 삭제 (jobs.py). SMTP_HOST가 비면 승인된 메일은 대기
   MEETINGS_BACKGROUND_JOBS: "1"
+  # 회의 Agent가 녹음 변환본을 읽기 전에 잘못 들린 말을 고친다 (library/tools/correct_transcript). 0이면 끔
+  TRANSCRIPT_CORRECTION: ${TRANSCRIPT_CORRECTION:-1}
   SMTP_HOST: ${SMTP_HOST:-}
   SMTP_PORT: ${SMTP_PORT:-587}
   SMTP_SECURITY: ${SMTP_SECURITY:-starttls}
@@ -165,6 +168,8 @@ services:
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       GROQ_STT_MODEL: ${GROQ_STT_MODEL:-whisper-large-v3-turbo}
       VOICE_MATCH_THRESHOLD: ${VOICE_MATCH_THRESHOLD:-0.5}
+      # 발언자를 나누는 방식: vad (말소리 구간을 목소리로 묶기) | pyannote (sherpa-onnx 화자 분리). /meetings/voice-check/에서 비교
+      DIARIZATION: ${DIARIZATION:-vad}
       # 4 vCPU를 다 써서 빨리 끝낸다 (2 → 4: 57분 회의 기준 약 30% 단축). 프로세스는 nice 10이라 다른 서비스가 먼저
       NUM_THREADS: ${SPEECH_THREADS:-4}
       PUBLIC_BASE_URL: ${OPENWEBUI_PUBLIC_URL}/voice
@@ -192,6 +197,10 @@ services:
       AGENT_BACKEND_URL: http://agents-group:8001
       PRINCIPAL_SIGNING_KEY: ${PRINCIPAL_SIGNING_KEY}
       INTERNAL_API_KEY: ${INTERNAL_API_KEY}   # /internal/directory/people (Agent backend의 메일 주소 조회)
+      PUBLIC_URL: ${OPENWEBUI_PUBLIC_URL}      # 출석 확인 QR이 가리키는 주소 (/meetings/checkin/)
+      # 목소리 구분 확인 화면 /meetings/voice-check/ (gateway/voice_check.py)이 녹음을 보내는 곳
+      SPEECH_SERVICE_URL: http://speech-service:8000
+      SPEECH_API_KEY: ${SPEECH_API_KEY}
       BACKEND_API_KEY: ${BACKEND_API_KEY}
       OWUI_FORWARD_JWT_SECRET: ${OWUI_FORWARD_JWT_SECRET}
       PERMISSIONS_FILE: /app/config/permissions.yaml

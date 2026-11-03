@@ -66,7 +66,7 @@ Agent 전환은 Open WebUI 왼쪽 메뉴의 고정 목록(`DEFAULT_PINNED_MODELS
 | `infra/agent-backend/Dockerfile` | Agent backend 이미지. `agents-k`, `agents-group` 두 서비스가 같은 Dockerfile 사용 | Agent |
 | `infra/speech-service/` | 화자 식별 STT, 음성 등록 페이지 `/voice/`, 회의 transcript를 id로 보관 (`GET /internal/transcripts/{id}`) | 회의 |
 | `infra/retention/` | Open WebUI가 보관하는 회의 녹음 파일을 보존 기간 후 삭제 | 회의 |
-| `gateway/desk.py`, `gateway/static/meetings/` | **회의 업무 API** `/meetings/api/*` — 채팅의 회의 카드가 씁니다. 예전 화면 `/meetings/`(메뉴에서 뺌): 회의록 목록 · 상세(회의록 · 회의 결과 보고서 PDF 내려받기, 감사 로그 기록), Agent가 보낸 메일 기록(실패하면 다시 보내기), Compliance 검토, Action Item 완료를 버튼으로 (Agent 없이 backend `/api/desk/*`). Open WebUI 로그인 토큰으로 사용자를 확인하고 회의지원 Agent 권한이 있어야 열림. 왼쪽 메뉴 링크는 `infra/open-webui/loader.js` | 회의 |
+| `gateway/desk.py`, `gateway/static/meetings/` | **회의 업무 API** `/meetings/api/*` — 채팅의 회의 카드가 씁니다. 예전 화면 `/meetings/`(메뉴에서 뺌): 회의록 목록 · 상세(회의록 · 회의 결과 보고서 PDF 내려받기, 감사 로그 기록), Agent가 보낸 메일 기록(실패하면 다시 보내기), Compliance 검토, Action Item 완료를 버튼으로 (Agent 없이 backend `/api/desk/*`). Open WebUI 로그인 토큰으로 사용자를 확인하고 회의지원 Agent 권한이 있어야 열림. 왼쪽 메뉴 링크는 `infra/open-webui/loader.js`. **출석 확인**: 녹음을 올리면 채팅 화면에 30초마다 바뀌는 QR(`checkin`, segno SVG, `PUBLIC_URL`) → 휴대폰 `/meetings/checkin/`에서 같은 로그인으로 출석(그룹이 배정된 회사 계정이면 누구나). 회의 카드의 참석자 고르기는 Keycloak 계정 찾기(`people`), 고른 이메일은 회사 계정인지 확인한 뒤 backend로. **목소리 구분 확인** `/meetings/voice-check/`: 녹음을 올리면 왼쪽에 녹음, 오른쪽에 '이름: 발언' (발언을 누르면 그 시각부터 재생, ✓ · ✗로 채점) — 지금 모델이 발언자를 얼마나 잘 나누는지 듣고 확인하는 화면, 발언자를 나누는 방식(지금 방식 · pyannote)을 골라 같은 녹음을 비교, `gateway/voice_check.py` → speech-service `/internal/review`, 저장 · 학습 없음 | 회의 |
 | `tests/` | Gateway 보안 테스트 | Auth |
 
 ## 서버에서 실행

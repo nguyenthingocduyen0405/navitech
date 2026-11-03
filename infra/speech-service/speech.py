@@ -4,6 +4,8 @@
       → VAD segments (silero)                      speech turns, independent of the STT engine
       → speaker embedding per segment (CAM++)
       → speakers: the whole recording's segments clustered, each cluster compared with the enrolled voiceprints
+        (DIARIZATION=pyannote: sherpa-onnx speaker diarization says who speaks when, the segments are cut where the
+        speaker changes, and each diarized speaker is compared with the voiceprints instead)
       → text: local SenseVoice per speaker turn, or Groq Whisper (segments mapped onto the VAD turns)
       → consecutive segments of one speaker merged into one line
 
@@ -13,7 +15,9 @@ neighbour's label. Clustering looks at all segments at once (not one by one as t
 so a voice that sounds a little different later in the meeting still joins its own cluster,
 and fragments too small to be a speaker join the closest one. A cluster whose average voice
 matches an enrolled voiceprint gets that name; the others become "화자 A", "화자 B", … in the
-order they first speak (with nobody enrolled, the whole meeting is labelled this way).
+order they first speak (with nobody enrolled, the whole meeting is labelled this way). The average
+voice of each of those unnamed clusters is handed back (`samples`) so that, once someone who agreed
+at the meeting's check-in is confirmed as "화자 C", that voice can become their voiceprint.
 """
 
 from __future__ import annotations
@@ -25,6 +29,7 @@ import subprocess
 import tempfile
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from functools import lru_cache
 
@@ -49,6 +54,18 @@ CLUSTER_THRESHOLD = float(os.environ.get("SPEAKER_CLUSTER_THRESHOLD", "0.45"))
 # of a voice (a cough, a far-off word, room noise) and joins the closest larger cluster.
 MINOR_SPEAKER_SHARE = 0.02
 MINOR_SPEAKER_MAX_SECONDS = 30.0
+# Who speaks when: "vad" — the speech segments between pauses, clustered by voice (above); "pyannote" — sherpa-onnx
+# speaker diarization (pyannote segmentation-3.0 finds speaker changes and overlaps in 10 s windows, CAM++ + fast
+# clustering groups them), and the speech segments are cut where the speaker changes. Compared on /meetings/voice-check/.
+DIARIZATION = os.environ.get("DIARIZATION", "vad").lower()
+SEGMENTATION_MODEL = f"{MODELS}/pyannote-segmentation/model.onnx"
+# sherpa-onnx fast clustering: a larger threshold gives fewer speakers (0.5 is sherpa-onnx's default)
+PYANNOTE_CLUSTER_THRESHOLD = float(os.environ.get("PYANNOTE_CLUSTER_THRESHOLD", "0.5"))
+# the 10 s segmentation window moves by this share of itself (pyannote's default 0.1 = 1 s); every window's speakers are
+# embedded, so a larger shift is that much faster
+PYANNOTE_WINDOW_SHIFT = float(os.environ.get("PYANNOTE_WINDOW_SHIFT", "0.1"))
+FRAME_SECONDS = 0.1  # resolution at which a speech segment is cut where the diarized speaker changes
+MIN_PIECE_SECONDS = 0.5  # a shorter run of another speaker inside a speech segment stays with its neighbour
 MIN_EMBED_SECONDS = 1.0
 # Text is recognised per speaker turn (not per VAD segment), capped so SenseVoice stays accurate.
 TURN_MAX_SECONDS = 25.0
@@ -64,6 +81,10 @@ GROQ_MAX_BYTES = 24 * 1024 * 1024  # Groq's upload limit is 25 MB: larger record
 STT_LANGUAGE = os.environ.get("STT_LANGUAGE", "ko")
 
 UNKNOWN = "화자"  # + A, B, …: a voice that matched no enrolled voiceprint
+
+# progress(stage, done, total): decode · vad · speakers (segments embedded) · text (turns recognised)
+Progress = Callable[[str, int, int], None]
+PROGRESS_EVERY = 10
 
 
 def unknown_label(k: int) -> str:
@@ -156,6 +177,7 @@ class Segment:
     label: str | None = None  # display label, or None until decided
     score: float = 0.0  # best voiceprint score
     embedding: np.ndarray | None = field(default=None, repr=False)
+    cluster: int | None = None  # the diarized speaker's number ("pyannote")
 
     @property
     def duration(self) -> float:
@@ -260,34 +282,148 @@ def absorb_minor(groups: list[list[int]], embeddings: np.ndarray, seconds: np.nd
     return major
 
 
-def label_segments(segments: list[Segment], voiceprints: list[Voiceprint]) -> None:
+def _embed_voiced(segments: list[Segment], progress: Progress | None) -> list[Segment]:
+    """The segments long enough to identify, each with its embedding."""
     voiced = [s for s in segments if s.duration >= MIN_EMBED_SECONDS]
-    for seg in voiced:
+    for n, seg in enumerate(voiced):
+        if progress and n % PROGRESS_EVERY == 0:
+            progress("speakers", n, len(voiced))
         seg.embedding = embed(seg.samples)
-    if voiced:
-        emb = np.stack([s.embedding for s in voiced])
-        seconds = np.array([s.duration for s in voiced], dtype=np.float32)
-        scores = emb @ np.stack([v.embedding for v in voiceprints]).T if voiceprints else np.zeros((len(voiced), 0))
-        groups = absorb_minor(cluster(emb, CLUSTER_THRESHOLD), emb, seconds)
-        unknown = 0
-        for g in sorted(groups, key=lambda g: min(voiced[i].start for i in g)):  # letters in speaking order
-            ranked = identify(_centroid(emb[g], seconds[g]), voiceprints)
-            if ranked and ranked[0][1] >= MATCH_THRESHOLD:
-                k = next(n for n, v in enumerate(voiceprints) if v is ranked[0][0])
-                label = ranked[0][0].label
-            else:
-                k, label = None, unknown_label(unknown)
-                unknown += 1
-            for i in g:
-                voiced[i].label = label
-                row = scores[i]
-                voiced[i].score = float(row[k]) if k is not None else (float(row.max()) if row.size else 0.0)
-    # Too short to identify: take the speaker of the closest identified segment in time.
+    return voiced
+
+
+def _name_groups(voiced: list[Segment], groups: list[list[int]], voiceprints: list[Voiceprint]) -> dict[str, tuple[np.ndarray, float]]:
+    """Each group of `voiced` (one speaker) named after the voiceprint its average voice matches, else "화자 A", "화자 B", …
+    in speaking order. Returns the unnamed voices' average embedding and seconds of speech ("화자 A" → (v, s))."""
+    samples: dict[str, tuple[np.ndarray, float]] = {}
+    emb = np.stack([s.embedding for s in voiced])
+    seconds = np.array([s.duration for s in voiced], dtype=np.float32)
+    scores = emb @ np.stack([v.embedding for v in voiceprints]).T if voiceprints else np.zeros((len(voiced), 0))
+    unknown = 0
+    for g in sorted(absorb_minor(groups, emb, seconds), key=lambda g: min(voiced[i].start for i in g)):  # letters in speaking order
+        centroid = _centroid(emb[g], seconds[g])
+        ranked = identify(centroid, voiceprints)
+        if ranked and ranked[0][1] >= MATCH_THRESHOLD:
+            k = next(n for n, v in enumerate(voiceprints) if v is ranked[0][0])
+            label = ranked[0][0].label
+        else:
+            k, label = None, unknown_label(unknown)
+            unknown += 1
+            samples[label] = (centroid, float(seconds[g].sum()))
+        for i in g:
+            voiced[i].label = label
+            row = scores[i]
+            voiced[i].score = float(row[k]) if k is not None else (float(row.max()) if row.size else 0.0)
+    return samples
+
+
+def _label_rest(segments: list[Segment]) -> None:
+    """Too short to identify: take the speaker of the closest identified segment in time."""
     identified = [s for s in segments if s.label]
     for seg in segments:
         if seg.label is None:
             nearest = min(identified, key=lambda s: max(s.start - seg.end, seg.start - s.end), default=None)
             seg.label = nearest.label if nearest else unknown_label(0)
+
+
+def label_segments(segments: list[Segment], voiceprints: list[Voiceprint],
+                   progress: Progress | None = None) -> dict[str, tuple[np.ndarray, float]]:
+    """Labels every VAD segment by clustering their voices ("vad"); returns the unnamed voices (see _name_groups)."""
+    voiced = _embed_voiced(segments, progress)
+    samples = {}
+    if voiced:
+        emb = np.stack([s.embedding for s in voiced])
+        samples = _name_groups(voiced, cluster(emb, CLUSTER_THRESHOLD), voiceprints)
+    _label_rest(segments)
+    return samples
+
+
+# ---------------------------------------------------------------------------
+# Speaker diarization ("pyannote"): where the speaker changes, found by a model instead of by pauses
+# ---------------------------------------------------------------------------
+
+
+@lru_cache(maxsize=1)
+def diarizer() -> sherpa_onnx.OfflineSpeakerDiarization:
+    config = sherpa_onnx.OfflineSpeakerDiarizationConfig(
+        segmentation=sherpa_onnx.OfflineSpeakerSegmentationModelConfig(
+            pyannote=sherpa_onnx.OfflineSpeakerSegmentationPyannoteModelConfig(model=SEGMENTATION_MODEL,
+                                                                              window_shift_ratio=PYANNOTE_WINDOW_SHIFT),
+            num_threads=NUM_THREADS,
+        ),
+        embedding=sherpa_onnx.SpeakerEmbeddingExtractorConfig(model=f"{MODELS}/{EMBEDDING_MODEL}", num_threads=NUM_THREADS),
+        clustering=sherpa_onnx.FastClusteringConfig(num_clusters=-1, threshold=PYANNOTE_CLUSTER_THRESHOLD),
+    )
+    sd = sherpa_onnx.OfflineSpeakerDiarization(config)
+    if sd.sample_rate != SAMPLE_RATE:
+        raise RuntimeError(f"diarization expects {sd.sample_rate} Hz audio")
+    return sd
+
+
+def diarization_methods() -> list[str]:
+    return ["vad", "pyannote"] if os.path.exists(SEGMENTATION_MODEL) else ["vad"]
+
+
+def cut_at_speaker_changes(segments: list[Segment], spans: list[tuple[float, float, int]]) -> list[Segment]:
+    """VAD segments (pauses stay the boundaries the STT works on) cut again where the diarized speaker changes inside
+    them. Each piece carries that speaker's number in `cluster`; where two speakers overlap, the longer span wins; a run
+    of another speaker shorter than MIN_PIECE_SECONDS stays with the piece before it."""
+    starts = np.array([s for s, _, _ in spans], dtype=np.float64)
+    ends = np.array([e for _, e, _ in spans], dtype=np.float64)
+    pieces: list[Segment] = []
+    for seg in segments:
+        near = [spans[i] for i in np.flatnonzero((starts < seg.end) & (ends > seg.start))]
+        n = max(1, round(seg.duration / FRAME_SECONDS))
+        who: list[int | None] = []
+        for k in range(n):
+            t = seg.start + (k + 0.5) * seg.duration / n
+            covering = [sp for sp in near if sp[0] <= t < sp[1]]
+            who.append(max(covering, key=lambda sp: sp[1] - sp[0])[2] if covering else None)
+        known = [w for w in who if w is not None]
+        fill = known[0] if known else None
+        for k, w in enumerate(who):  # frames no span covers (a pause the model left out) join the speaker before them
+            who[k] = fill = w if w is not None else fill
+        runs: list[list] = []  # [first frame, last frame + 1, speaker]
+        for k, w in enumerate(who):
+            if runs and runs[-1][2] == w:
+                runs[-1][1] = k + 1
+            else:
+                runs.append([k, k + 1, w])
+        merged: list[list] = []
+        for r in runs:
+            if merged and ((r[1] - r[0]) * seg.duration / n < MIN_PIECE_SECONDS or merged[-1][2] == r[2]):
+                merged[-1][1] = r[1]
+            else:
+                merged.append(r)
+        if len(merged) > 1 and (merged[0][1] - merged[0][0]) * seg.duration / n < MIN_PIECE_SECONDS:
+            merged[1][0] = merged[0][0]  # a too-short first run joins the one after it
+            merged.pop(0)
+        for f0, f1, w in merged:
+            t0, t1 = seg.start + f0 * seg.duration / n, seg.start + f1 * seg.duration / n
+            i0, i1 = int((t0 - seg.start) * SAMPLE_RATE), int((t1 - seg.start) * SAMPLE_RATE)
+            pieces.append(Segment(t0, t1, seg.samples[i0:i1], cluster=w))
+    return pieces
+
+
+def diarize(audio: np.ndarray, segments: list[Segment], voiceprints: list[Voiceprint],
+            progress: Progress | None = None) -> tuple[list[Segment], dict[str, tuple[np.ndarray, float]]]:
+    """The VAD segments cut where the speaker changes and labelled by the diarized speakers; the unnamed voices."""
+    def report(done: int, total: int) -> int:
+        if progress:
+            progress("diarize", int(done), int(total))
+        return 0  # non-zero would stop the model
+
+    result = diarizer().process(audio, callback=report).sort_by_start_time()
+    pieces = cut_at_speaker_changes(segments, [(s.start, s.end, s.speaker) for s in result])
+    voiced = [p for p in _embed_voiced(pieces, progress) if p.cluster is not None]
+    samples = {}
+    if voiced:
+        by_speaker: dict[int, list[int]] = {}
+        for i, p in enumerate(voiced):
+            by_speaker.setdefault(p.cluster, []).append(i)
+        samples = _name_groups(voiced, list(by_speaker.values()), voiceprints)
+    _label_rest(pieces)
+    return pieces, samples
 
 
 # ---------------------------------------------------------------------------
@@ -323,11 +459,13 @@ def group_turns(segments: list[Segment]) -> list[Turn]:
     return turns
 
 
-def transcribe_local(audio: np.ndarray, turns: list[Turn]) -> None:
+def transcribe_local(audio: np.ndarray, turns: list[Turn], progress: Progress | None = None) -> None:
     """SenseVoice on each turn's original audio, pauses included: on single VAD segments
     it splits Korean words apart ("결 정하 겠 습니다"), on whole turns it spaces them normally."""
     rec = recognizer()
-    for turn in turns:
+    for n, turn in enumerate(turns):
+        if progress and n % PROGRESS_EVERY == 0:
+            progress("text", n, len(turns))
         s0 = max(0, int((turn.start - TURN_CONTEXT_SECONDS) * SAMPLE_RATE))
         s1 = min(len(audio), int((turn.end + TURN_CONTEXT_SECONDS) * SAMPLE_RATE))
         stream = rec.create_stream()
@@ -387,22 +525,35 @@ def _clock(seconds: float) -> str:
     return f"{s // 3600:02d}:{s % 3600 // 60:02d}:{s % 60:02d}" if s >= 3600 else f"{s // 60:02d}:{s % 60:02d}"
 
 
-def transcribe(data: bytes, filename: str, voiceprints: list[Voiceprint], language: str | None = None) -> dict:
+def transcribe(data: bytes, filename: str, voiceprints: list[Voiceprint], language: str | None = None,
+               progress: Progress | None = None, diarization: str | None = None) -> dict:
+    """`diarization`: "vad" | "pyannote" (see DIARIZATION, the default); the voice check page compares the two."""
+    step = progress or (lambda stage, done, total: None)
+    method = diarization or DIARIZATION
+    if method not in diarization_methods():
+        log.warning("diarization %r is not available, using vad", method)
+        method = "vad"
     with _JOB_LOCK:
         took = [time.monotonic()]
+        step("decode", 0, 0)
         audio = decode(data)
         duration = len(audio) / SAMPLE_RATE
         took.append(time.monotonic())
+        step("vad", 0, 0)
         segments = vad_segments(audio)
         took.append(time.monotonic())
-        label_segments(segments, voiceprints)
+        if method == "pyannote":
+            segments, samples = diarize(audio, segments, voiceprints, step)
+        else:
+            samples = label_segments(segments, voiceprints, step)
         took.append(time.monotonic())
         groups = group_turns(segments)
         engine = stt_engine()
+        step("text", 0, len(groups))
         if engine == "groq":
             transcribe_groq(audio, data, filename, groups, language)
         else:
-            transcribe_local(audio, groups)
+            transcribe_local(audio, groups, step)
         took.append(time.monotonic())
 
     # Output lines: one per speaker change (turns split only by TURN_MAX_SECONDS are joined again).
@@ -431,18 +582,20 @@ def transcribe(data: bytes, filename: str, voiceprints: list[Voiceprint], langua
         lines += [f"[{_clock(t['start'])}] {t['speaker']}: {t['text']}" for t in turns]
         text = "\n".join(lines) + "\n"
 
-    log.info("transcribed %.1fs audio in %.1fs (decode %.1f, vad %.1f, speakers %.1f, text %.1f), engine=%s, threads=%d, "
-             "%d segments, speakers=%s", duration, took[-1] - took[0], *(b - a for a, b in zip(took, took[1:])), engine,
-             NUM_THREADS, len(segments), speakers)
+    log.info("transcribed %.1fs audio in %.1fs (decode %.1f, vad %.1f, speakers %.1f, text %.1f), engine=%s, diarization=%s, "
+             "threads=%d, %d segments, speakers=%s", duration, took[-1] - took[0], *(b - a for a, b in zip(took, took[1:])),
+             engine, method, NUM_THREADS, len(segments), speakers)
     return {
         "text": text,
         "labelled": labelled,  # a meeting transcript (speaker lines), not chat-mic dictation
         "duration": round(duration, 2),
         "engine": engine,
+        "diarization": method,
         "speakers": speakers,
         "turns": [{**t, "start": round(t["start"], 2), "end": round(t["end"], 2)} for t in turns],
         "segments": [
             {"start": round(s.start, 2), "end": round(s.end, 2), "speaker": s.label, "score": round(s.score, 3)}
             for s in segments
         ],
+        "samples": samples,  # not for the response: the caller keeps them (encrypted, briefly) and removes the key
     }

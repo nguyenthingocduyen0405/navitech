@@ -1,0 +1,384 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>목소리 구분 확인 · Navitech</title>
+<style>
+  :root { --bg:#f5f5f7; --card:#fff; --ink:#111827; --muted:#6b7280; --line:rgba(0,0,0,.09); --brand:#5b5bd6; --ok:#0f9d58;
+    --no:#dc2626; --warn:#c2410c; --hl:rgba(91,91,214,.10); }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#111113; --card:#1b1b1d; --ink:#f3f4f6; --muted:#9ca3af; --line:rgba(255,255,255,.1); --brand:#8b8cf8; --ok:#34d399;
+      --no:#f87171; --warn:#fb923c; --hl:rgba(139,140,248,.16); }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+    font:15px/1.55 -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif; }
+  header { max-width:1280px; margin:0 auto; padding:22px 16px 14px; }
+  .brand { font-size:13px; font-weight:700; color:var(--muted); letter-spacing:.02em; }
+  h1 { font-size:22px; margin:2px 0 4px; letter-spacing:-.01em; }
+  h2 { font-size:15px; margin:0 0 10px; }
+  .muted { color:var(--muted); }
+  .small { font-size:13px; }
+  .layout { max-width:1280px; margin:0 auto; padding:0 16px 32px; display:grid; grid-template-columns:minmax(300px, 380px) minmax(0, 1fr);
+    gap:16px; align-items:start; }
+  .side { display:grid; gap:16px; position:sticky; top:16px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:16px; min-width:0; }
+  .drop { display:grid; gap:2px; place-items:center; text-align:center; padding:18px 12px; border:1.5px dashed var(--line);
+    border-radius:12px; cursor:pointer; }
+  .drop.over { border-color:var(--brand); background:var(--hl); }
+  .drop input { display:none; }
+  .drop b { color:var(--brand); }
+  .method { display:grid; gap:4px; margin-top:12px; font-size:13px; color:var(--muted); }
+  .method select { font-size:14px; padding:6px 8px; border-radius:8px; border:1px solid var(--line); background:var(--card); color:var(--ink); }
+  .btn.ghost { width:100%; margin-top:10px; padding:7px 12px; background:none; color:var(--brand); border:1px solid var(--brand); }
+  .history { margin-top:12px; padding-top:10px; border-top:1px solid var(--line); display:grid; gap:6px; font-size:13px; }
+  .history b { font-size:13px; }
+  .status { margin-top:12px; font-size:14px; }
+  .status.warn { color:var(--warn); }
+  .status.ok { color:var(--muted); }
+  .status button { margin-left:8px; }
+  audio { width:100%; margin-top:12px; }
+  .tools { display:flex; gap:14px; flex-wrap:wrap; align-items:center; margin-top:8px; font-size:13px; color:var(--muted); }
+  select, button { font:inherit; }
+  button { cursor:pointer; }
+  .btn { border:0; border-radius:8px; padding:5px 12px; background:var(--brand); color:#fff; font-weight:700; }
+  .spk { display:grid; grid-template-columns:12px 1fr auto; gap:2px 10px; width:100%; text-align:left; padding:9px 10px;
+    border:1px solid transparent; border-radius:10px; background:none; color:inherit; }
+  .spk:hover { background:var(--hl); }
+  .spk.on { border-color:var(--brand); background:var(--hl); }
+  .spk i { width:12px; height:12px; border-radius:50%; margin-top:5px; grid-row:span 2; }
+  .spk .acc { font-size:12px; color:var(--muted); white-space:nowrap; }
+  .spk small { grid-column:2 / 4; color:var(--muted); font-size:12.5px; }
+  .tally { font-size:14px; }
+  .tally b { font-size:20px; }
+  .transcript { padding:0; max-height:calc(100vh - 120px); overflow:auto; }
+  .empty { padding:40px 20px; text-align:center; }
+  .filter { position:sticky; top:0; z-index:1; display:flex; justify-content:space-between; gap:8px; align-items:center;
+    padding:10px 16px; background:var(--card); border-bottom:1px solid var(--line); font-size:13px; }
+  .filter button { border:0; background:none; color:var(--brand); font-weight:700; }
+  ol { list-style:none; margin:0; padding:6px 0; }
+  .line { display:grid; grid-template-columns:52px minmax(0, 1fr) auto; gap:10px; padding:9px 16px; cursor:pointer;
+    border-left:3px solid transparent; }
+  .line:hover { background:var(--hl); }
+  .line.now { background:var(--hl); border-left-color:var(--brand); }
+  .line .t { font:12.5px/1.9 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color:var(--muted); }
+  .line .who { font-weight:700; margin-right:6px; }
+  .line .score { font-size:12px; color:var(--muted); }
+  .line p { margin:2px 0 0; word-break:keep-all; overflow-wrap:anywhere; }
+  .marks { display:flex; gap:4px; align-items:start; }
+  .marks button { width:30px; height:28px; border:1px solid var(--line); border-radius:8px; background:var(--card); color:var(--muted);
+    font-weight:700; }
+  .line.ok .marks .ok { background:var(--ok); border-color:var(--ok); color:#fff; }
+  .line.no .marks .no { background:var(--no); border-color:var(--no); color:#fff; }
+  [hidden] { display:none !important; }
+  @media (max-width: 860px) {
+    .layout { grid-template-columns:1fr; }
+    .side { position:static; }
+    .transcript { max-height:none; overflow:visible; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">Navitech 회의지원</div>
+  <h1>목소리 구분 확인</h1>
+  <div class="muted small">회의 녹음을 올리면 회의지원 채팅과 같은 방식으로 발언자를 나누고 이름을 붙입니다. 들으면서 발언자가 맞는지 확인하세요.
+    결과는 회의록으로 저장하지 않고 목소리도 익히지 않습니다 (1시간 뒤 삭제).</div>
+</header>
+<main class="layout">
+  <aside class="side">
+    <section class="card">
+      <label class="drop" id="drop">
+        <input type="file" id="file" accept="audio/*,video/*,.m4a,.mp3,.wav,.webm,.ogg,.aac,.flac">
+        <b>녹음 파일 선택</b>
+        <span class="muted small">또는 여기에 끌어다 놓기 · 200MB까지</span>
+      </label>
+      <label class="method">발언자를 나누는 방식
+        <select id="method">
+          <option value="vad">지금 방식 — 말소리 구간을 목소리로 묶기</option>
+          <option value="pyannote">pyannote — 말하는 사람이 바뀌는 곳을 모델이 찾기</option>
+        </select>
+      </label>
+      <button type="button" class="btn ghost" id="again" hidden>같은 녹음을 이 방식으로 다시 확인</button>
+      <div class="status" id="status" hidden></div>
+      <audio id="audio" controls preload="metadata" hidden></audio>
+      <div class="tools" id="tools" hidden>
+        <label>속도 <select id="rate">
+          <option value="0.75">0.75×</option><option value="1" selected>1×</option><option value="1.25">1.25×</option>
+          <option value="1.5">1.5×</option><option value="2">2×</option>
+        </select></label>
+        <label><input type="checkbox" id="follow" checked> 재생 중인 발언 따라가기</label>
+      </div>
+    </section>
+    <section class="card" id="speakers-card" hidden>
+      <h2>발언자 <span class="muted" id="speakers-count"></span></h2>
+      <div id="speakers"></div>
+      <div class="muted small" id="settings" style="margin-top:10px"></div>
+    </section>
+    <section class="card" id="score-card" hidden>
+      <h2>채점</h2>
+      <div class="muted small" style="margin-bottom:8px">발언마다 ✓(발언자가 맞음) · ✗(틀림)을 누르세요. 이 화면에만 남고 저장되지 않습니다.</div>
+      <div class="tally" id="tally"></div>
+      <div class="history" id="history" hidden></div>
+    </section>
+  </aside>
+  <section class="card transcript" id="transcript">
+    <div class="empty muted" id="empty">녹음을 올리면 여기에 '이름: 발언'이 시간 순서대로 나옵니다. 발언을 누르면 그 시각부터 재생합니다.</div>
+    <div class="filter" id="filter" hidden><span id="filter-text"></span><button type="button" id="filter-off">전체 보기</button></div>
+    <ol id="lines"></ol>
+  </section>
+</main>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const NEXT = 'navitech.checkin.next'; // 로그인한 뒤 Open WebUI 화면(loader.js)이 이 주소로 돌려보냄
+  const COLORS = ['#5b5bd6', '#0f9d58', '#d97706', '#db2777', '#0891b2', '#7c3aed', '#65a30d', '#dc2626'];
+  const audio = $('audio');
+  let turns = [], speakers = [], marks = new Map(), only = null, now = -1, objectUrl = null, timer = null, run = 0;
+  let lastFile = null, current = null, history = []; // 같은 녹음을 다른 방식으로 확인한 결과를 나란히 보기 위해
+
+  const pad = (n) => String(n).padStart(2, '0');
+  const clock = (s) => { s = Math.floor(s); const h = Math.floor(s / 3600); return `${h ? pad(h) + ':' : ''}${pad(Math.floor(s % 3600 / 60))}:${pad(s % 60)}`; };
+  const span = (s) => (s >= 60 ? `${Math.floor(s / 60)}분 ${Math.round(s % 60)}초` : `${Math.round(s)}초`);
+  const pct = (a, b) => (b ? `${Math.round((a / b) * 100)}%` : '–');
+  const el = (tag, props = {}, ...kids) => { const e = Object.assign(document.createElement(tag), props); e.append(...kids); return e; };
+  const token = () => localStorage.getItem('token');
+  const auth = () => ({ Authorization: `Bearer ${token()}` });
+  const STAGES = { decode: '녹음 읽는 중', vad: '말소리 구간 찾는 중', diarize: '말하는 사람이 바뀌는 곳 찾는 중 (pyannote)',
+    speakers: '목소리 비교 중', text: '글자로 바꾸는 중' };
+  const METHODS = { vad: '지금 방식', pyannote: 'pyannote' };
+
+  function status(text, kind = '') {
+    $('status').hidden = false;
+    $('status').className = `status ${kind}`;
+    $('status').textContent = text;
+  }
+
+  function needLogin() {
+    status('Open WebUI에 로그인한 뒤 이 화면을 다시 여세요.', 'warn');
+    $('status').append(el('button', { type: 'button', className: 'btn', textContent: '로그인', onclick: () => {
+      localStorage.setItem(NEXT, location.pathname);
+      location.href = '/auth';
+    } }));
+  }
+
+  function reset() {
+    clearTimeout(timer);
+    if (current) {
+      let ok = 0;
+      marks.forEach((v) => { if (v) ok++; });
+      history = [{ ...current, ok, marked: marks.size }, ...history].slice(0, 5);
+      current = null;
+    }
+    turns = []; speakers = []; marks = new Map(); only = null; now = -1;
+    $('lines').replaceChildren();
+    $('empty').hidden = false;
+    $('filter').hidden = true;
+    $('speakers-card').hidden = true;
+    $('score-card').hidden = true;
+  }
+
+  async function upload(file) {
+    if (!file) return;
+    if (!token()) return needLogin();
+    reset();
+    const mine = ++run;
+    const method = $('method').value;
+    lastFile = file;
+    $('again').hidden = true;
+    if (objectUrl) URL.revokeObjectURL(objectUrl);
+    objectUrl = URL.createObjectURL(file); // 재생은 이 PC의 파일로 (서버에서 다시 받지 않음)
+    audio.src = objectUrl;
+    audio.hidden = false;
+    $('tools').hidden = false;
+    status(`올리는 중… ${file.name} (${METHODS[method]})`);
+    let res, data;
+    try {
+      res = await fetch(`/meetings/api/voice-check?method=${method}`, {
+        method: 'POST', body: file,
+        headers: { ...auth(), 'Content-Type': 'application/octet-stream', 'X-Filename': encodeURIComponent(file.name) },
+      });
+      data = await res.json().catch(() => ({}));
+    } catch {
+      $('again').hidden = false;
+      return status('연결할 수 없습니다. 네트워크를 확인해 주세요.', 'warn');
+    }
+    if (res.status === 401) return needLogin();
+    if (!res.ok) {
+      $('again').hidden = false;
+      return status(data.error || `올리지 못했습니다 (HTTP ${res.status})`, 'warn');
+    }
+    wait(data.job, file, mine);
+  }
+
+  function wait(job, file, mine) {
+    const started = Date.now();
+    let misses = 0; // 처리 중에 speech-service가 잠깐 답하지 못한 횟수
+    const tick = async () => {
+      if (mine !== run) return; // 그사이 다른 파일을 골랐음
+      let res, data;
+      try {
+        res = await fetch(`/meetings/api/voice-check/${encodeURIComponent(job)}`, { headers: auth() });
+        data = await res.json().catch(() => ({}));
+      } catch {
+        res = null;
+      }
+      if (mine !== run) return;
+      if ((!res || [502, 503, 504].includes(res.status)) && ++misses <= 30) {
+        timer = setTimeout(tick, 4000);
+        return;
+      }
+      if (!res) return status('연결할 수 없습니다. 네트워크를 확인해 주세요.', 'warn');
+      misses = 0;
+      if (res.status === 401) return needLogin();
+      if (!res.ok) return status(data.error || `결과를 가져오지 못했습니다 (HTTP ${res.status})`, 'warn');
+      if (data.status === 'processing') {
+        const p = data.progress;
+        const step = !p ? '앞서 올라온 녹음이 끝나기를 기다리는 중'
+          : STAGES[p.stage] + (p.total ? ` · ${p.done} / ${p.total} (${pct(p.done, p.total)})` : '');
+        status(`${step} · ${clock((Date.now() - started) / 1000)} 경과`);
+        timer = setTimeout(tick, 2000);
+        return;
+      }
+      if (data.status === 'error') {
+        $('again').hidden = false;
+        return status(data.error || '녹음을 처리하지 못했습니다.', 'warn');
+      }
+      show(data.result, file);
+    };
+    tick();
+  }
+
+  function show(r, file) {
+    turns = r.turns;
+    speakers = r.speakers.map((s, i) => ({ ...s, color: COLORS[i % COLORS.length] }));
+    current = { method: r.diarization, file: file.name, speakers: speakers.length, turns: turns.length, took: r.took_seconds };
+    $('again').hidden = false;
+    status(`${file.name} · ${clock(r.duration)} · ${METHODS[r.diarization]} · 발언자 ${speakers.length}명 · 발언 ${turns.length}개 · `
+      + `처리 ${span(r.took_seconds)}`, 'ok');
+    const engine = r.engine === 'groq' ? 'Groq Whisper' : 'SenseVoice (서버에서)';
+    $('settings').textContent = `등록된 목소리 ${r.voiceprints}명 · 이름을 붙이는 기준: 등록된 목소리와 일치도 ${r.match_threshold} 이상 · `
+      + `발언자 나누기 ${METHODS[r.diarization]}${r.diarization === 'vad' ? ` (같은 사람으로 묶는 기준 ${r.cluster_threshold})` : ''} · `
+      + `목소리 모델 ${r.model} · 글자 변환 ${engine}`;
+    $('speakers-count').textContent = `${speakers.length}명`;
+    $('empty').hidden = true;
+    $('speakers-card').hidden = false;
+    $('score-card').hidden = false;
+    renderLines();
+    renderSpeakers();
+    renderTally();
+  }
+
+  function speakerNote(s) {
+    if (s.named) return s.score == null ? '등록된 목소리로 식별' : `등록된 목소리와 일치도 ${s.score.toFixed(2)}`;
+    if (s.nearest) return `등록된 목소리와 달라 이름 없음 (가장 가까운 목소리: ${s.nearest}, 일치도 ${s.nearest_score.toFixed(2)})`;
+    return '등록된 목소리가 없어 이름 없음';
+  }
+
+  function renderSpeakers() {
+    const rows = speakers.map((s) => {
+      let ok = 0, no = 0;
+      turns.forEach((t, i) => { if (t.speaker === s.speaker && marks.has(i)) marks.get(i) ? ok++ : no++; });
+      const btn = el('button', { type: 'button', className: `spk${only === s.speaker ? ' on' : ''}`, title: '이 발언자의 발언만 보기',
+        onclick: () => setOnly(only === s.speaker ? null : s.speaker) },
+        el('i', { style: `background:${s.color}` }),
+        el('b', { textContent: s.speaker }),
+        el('span', { className: 'acc', textContent: ok + no ? `✓${ok} ✗${no}` : '' }),
+        el('small', { textContent: `${span(s.seconds)} · 발언 ${s.turns}개 · ${speakerNote(s)}` }));
+      return btn;
+    });
+    $('speakers').replaceChildren(...rows);
+  }
+
+  function renderTally() {
+    let ok = 0, okSec = 0, sec = 0;
+    marks.forEach((v, i) => { const d = turns[i].end - turns[i].start; sec += d; if (v) { ok++; okSec += d; } });
+    $('tally').replaceChildren(...(!marks.size
+      ? [el('span', { className: 'muted', textContent: `아직 표시한 발언이 없습니다 (전체 ${turns.length}개).` })]
+      : [el('div', {}, el('b', { textContent: pct(ok, marks.size) }), ` 맞음 · ${ok} / ${marks.size}개`),
+        el('div', { className: 'muted small', textContent: `발언 시간 기준 ${pct(okSec, sec)} · 표시한 발언 ${marks.size} / 전체 ${turns.length}개` })]));
+    $('history').hidden = !history.length;
+    $('history').replaceChildren(el('b', { textContent: '앞서 확인한 결과' }), ...history.map((h) => el('div', { className: 'muted',
+      textContent: `${METHODS[h.method]} · ${h.file} · 발언자 ${h.speakers}명 · 발언 ${h.turns}개 · 처리 ${span(h.took)} · `
+        + (h.marked ? `맞음 ${pct(h.ok, h.marked)} (${h.ok}/${h.marked})` : '채점 안 함') })));
+  }
+
+  function lineClass(i) {
+    const m = marks.has(i) ? (marks.get(i) ? ' ok' : ' no') : '';
+    return `line${i === now ? ' now' : ''}${m}`;
+  }
+
+  function mark(i, value, li) {
+    if (marks.get(i) === value) marks.delete(i); else marks.set(i, value);
+    li.className = lineClass(i);
+    renderTally();
+    renderSpeakers();
+  }
+
+  function renderLines() {
+    const color = Object.fromEntries(speakers.map((s) => [s.speaker, s.color]));
+    const named = Object.fromEntries(speakers.map((s) => [s.speaker, s.named]));
+    const items = turns.map((t, i) => {
+      const li = el('li', { className: lineClass(i) });
+      li.dataset.i = i;
+      li.hidden = !!only && t.speaker !== only;
+      const who = el('span', { className: 'who', textContent: `${t.speaker}:` });
+      who.style.color = color[t.speaker];
+      const score = named[t.speaker] && t.score != null
+        ? el('span', { className: 'score', title: '이 발언의 목소리와 등록된 목소리의 일치도', textContent: t.score.toFixed(2) }) : '';
+      li.append(
+        el('span', { className: 't', textContent: clock(t.start) }),
+        el('div', {}, who, score, el('p', { textContent: t.text })),
+        el('div', { className: 'marks' },
+          el('button', { type: 'button', className: 'ok', title: '발언자가 맞음', textContent: '✓',
+            onclick: (e) => { e.stopPropagation(); mark(i, true, li); } }),
+          el('button', { type: 'button', className: 'no', title: '발언자가 틀림', textContent: '✗',
+            onclick: (e) => { e.stopPropagation(); mark(i, false, li); } })));
+      li.onclick = () => { audio.currentTime = t.start; audio.play(); };
+      return li;
+    });
+    $('lines').replaceChildren(...items);
+  }
+
+  function setOnly(speaker) {
+    only = speaker;
+    $('lines').querySelectorAll('.line').forEach((li) => { li.hidden = !!only && turns[li.dataset.i].speaker !== only; });
+    $('filter').hidden = !only;
+    $('filter-text').textContent = only ? `${only}의 발언만 보는 중` : '';
+    renderSpeakers();
+  }
+  $('filter-off').onclick = () => setOnly(null);
+
+  // 재생 위치의 발언 (시작 시각이 지금 이하인 마지막 발언)
+  audio.addEventListener('timeupdate', () => {
+    if (!turns.length) return;
+    const at = audio.currentTime;
+    let lo = 0, hi = turns.length - 1, found = -1;
+    while (lo <= hi) { const mid = (lo + hi) >> 1; if (turns[mid].start <= at) { found = mid; lo = mid + 1; } else hi = mid - 1; }
+    if (found === now) return;
+    const prev = $('lines').querySelector(`[data-i="${now}"]`);
+    now = found;
+    if (prev) prev.className = lineClass(+prev.dataset.i);
+    const cur = $('lines').querySelector(`[data-i="${now}"]`);
+    if (cur) {
+      cur.className = lineClass(now);
+      if ($('follow').checked && !cur.hidden) cur.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }
+  });
+
+  $('again').onclick = () => upload(lastFile);
+  $('rate').onchange = (e) => { audio.playbackRate = +e.target.value; };
+  audio.addEventListener('loadedmetadata', () => { audio.playbackRate = +$('rate').value; });
+  $('file').onchange = (e) => { upload(e.target.files[0]); e.target.value = ''; }; // 같은 파일을 다시 골라도 올라가게
+  const drop = $('drop');
+  drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('over'); });
+  drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+  drop.addEventListener('drop', (e) => { e.preventDefault(); drop.classList.remove('over'); upload(e.dataTransfer.files[0]); });
+
+  if (!token()) needLogin();
+})();
+</script>
+</body>
+</html>

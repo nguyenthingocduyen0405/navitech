@@ -7,6 +7,13 @@ B=https://github.com/k2-fsa/sherpa-onnx/releases/download
 [ -f silero_vad.onnx ] || curl -fsSL -o silero_vad.onnx "$B/asr-models/silero_vad.onnx"
 # 화자 임베딩: 3D-Speaker CAM++ (zh+en 대규모 학습, 192차원). 바꾸면 기존 voiceprint는 재등록 필요
 [ -f campplus.onnx ] || curl -fsSL -o campplus.onnx "$B/speaker-recongition-models/3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx"
+# 화자 분리 (DIARIZATION=pyannote, 목소리 구분 확인 화면에서 비교): pyannote segmentation-3.0 ONNX (MIT), 약 6MB
+if [ ! -f pyannote-segmentation/model.onnx ]; then
+  curl -fsSL "$B/speaker-segmentation-models/sherpa-onnx-pyannote-segmentation-3-0.tar.bz2" | tar xj
+  mkdir -p pyannote-segmentation
+  mv sherpa-onnx-pyannote-segmentation-3-0/{model.onnx,LICENSE,README.md} pyannote-segmentation/
+  rm -rf sherpa-onnx-pyannote-segmentation-3-0
+fi
 # 로컬 STT (Groq 키가 없을 때): SenseVoice int8, 한국어 포함
 if [ ! -d sense-voice ]; then
   curl -fsSL "$B/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2" | tar xj

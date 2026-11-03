@@ -32,6 +32,9 @@ class Settings:
     openwebui_internal_url: str = "http://open-webui:8080"  # 회의 업무 화면이 로그인 사용자를 묻는 곳 (gateway/desk.py)
     principal_signing_key: str = ""  # backend와 공유: 요청자(principal)를 서명해 보냄 (runtime/principal.py)
     internal_api_key: str = ""  # backend → gateway 내부 API(/internal/…)용 키. 비우면 내부 API를 열지 않음
+    public_url: str = ""  # 사용자가 여는 주소 (예: https://jbnunavitech.me:17227) — 출석 QR이 가리키는 곳. 비우면 요청 주소
+    speech_service_url: str = ""  # 목소리 구분 확인 화면이 녹음을 보내는 곳 (gateway/voice_check.py). 비우면 그 화면을 쓸 수 없음
+    speech_api_key: str = ""  # = speech-service의 SPEECH_API_KEY
     user_jwt_header: str = "X-OpenWebUI-User-Jwt"
     chat_id_header: str = "X-OpenWebUI-Chat-Id"
 
@@ -50,4 +53,7 @@ class Settings:
             openwebui_internal_url=os.environ.get("OPENWEBUI_INTERNAL_URL", "http://open-webui:8080").strip().rstrip("/"),
             principal_signing_key=_optional("PRINCIPAL_SIGNING_KEY", MIN_SECRET_LENGTH),
             internal_api_key=_optional("INTERNAL_API_KEY", MIN_SECRET_LENGTH),
+            public_url=os.environ.get("PUBLIC_URL", "").strip().rstrip("/"),
+            speech_service_url=os.environ.get("SPEECH_SERVICE_URL", "").strip().rstrip("/"),
+            speech_api_key=os.environ.get("SPEECH_API_KEY", "").strip(),
         )

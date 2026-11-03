@@ -16,6 +16,7 @@ class UserContext:
     allowed_agents: frozenset[str]
     meeting_ids: frozenset[str] = frozenset()  # TODO: 회의 테이블이 생기면 참석자 정보로 채우기
     chat_id: str | None = None
+    user_id: str | None = None  # Keycloak 사용자 id (디렉터리에 있을 때)
 
     def can_use(self, agent_id: str) -> bool:
         return agent_id in self.allowed_agents

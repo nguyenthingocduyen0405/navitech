@@ -21,6 +21,20 @@
 - `/v1`은 docker 네트워크 안에서만 (nginx는 `/voice/`만 노출). 인증: `Bearer SPEECH_API_KEY`.
 - 화자 라벨이 붙은 회의 transcript는 `transcripts` 테이블에 `TRANSCRIPT_RETENTION_DAYS`(기본 30일) 동안 보관하고, 텍스트 첫 줄에 `[transcript_id: TR-…]`를 붙인다.
   회의지원 Agent가 이 id로 `GET /internal/transcripts/{id}`(같은 키, 내부망)에서 발언 단위 결과를 가져가 자기 저장소에 따로 보관한다. 만료분은 매시간 삭제.
+- 회의에서 익힌 목소리 (2026-11-03): 이름을 찾지 못한 발언자(`화자 C`)마다 평균 목소리를 `speaker_samples`에 암호화해 `SPEAKER_SAMPLE_DAYS`(기본 7일) 동안 둔다.
+  회의지원 Agent 사용자가 회의 카드에서 "화자 C = 누구"를 정하고, 그 사람이 녹음을 올릴 때 띄운 QR로 출석하면서 목소리 학습에 **본인이** 동의했으면
+  `POST /internal/voiceprints/learn`(같은 키, 내부망)이 그 목소리를 그 사람의 voiceprint(`source = 'meeting'`)로 저장한다 → 다음 회의부터 이름으로 적힌다.
+  발언이 `VOICE_LEARN_MIN_SECONDS`(기본 30초)보다 짧으면 익히지 않고, `/voice/`에서 3문장으로 등록한 voiceprint는 바꾸지 않는다. 다시 확인되면 이전 회의 목소리와 평균한다.
+  누구인지 정해지지 않은 목소리는 기간이 지나면 삭제된다. 본인은 `/voice/`에서 확인 · 삭제할 수 있다.
+- 목소리 구분 확인 (2026-11-03): gateway의 `/meetings/voice-check/`(회의지원 Agent 권한)가 녹음을 `POST /internal/review`(같은 키)로 보내면
+  회의 녹음과 같은 방식으로 처리해 job id를 주고, `GET /internal/review/{job}?owner=`로 결과(발언 · 발언자별 시간 · 일치도, 이름이 없는 목소리는
+  가장 가까운 등록 목소리와 일치도)를 준다. transcript로 보관하지 않고 `speaker_samples`도 남기지 않으며, 결과는 메모리에 1시간(`REVIEW_KEEP_SECONDS`).
+  동시에 2개까지 받고, 회의 녹음과 같은 작업 잠금을 써서 앞선 작업이 끝난 뒤 시작한다.
+- 발언자를 나누는 방식 `DIARIZATION` (2026-11-03): `vad`(기본, 말소리 구간을 목소리로 묶기) | `pyannote`(sherpa-onnx 화자 분리: pyannote
+  segmentation-3.0이 10초 창마다 말하는 사람이 바뀌는 곳 · 겹치는 곳을 찾고 CAM++로 묶은 뒤, 말소리 구간을 그 자리에서 다시 자름). 이름 붙이기 ·
+  voiceprint · 학습은 두 방식이 같다. 목소리 구분 확인 화면에서 같은 녹음을 두 방식으로 돌려 비교할 수 있다 (`method=`). 모델은 `download_models.sh`
+  (`models/pyannote-segmentation/`). `PYANNOTE_CLUSTER_THRESHOLD`(0.5, 클수록 사람 수가 적게), `PYANNOTE_WINDOW_SHIFT`(0.1 = pyannote 기본;
+  5분 발췌에서 0.25 · 0.5는 빨라지지만 한 사람의 긴 발언을 둘로 나눔). 로컬 PC 5분 발췌: vad 28–40초, pyannote 84–177초.
 
 설치: `./download_models.sh` (모델 ~200MB → `models/`, 읽기 전용 마운트). 임베딩 모델을 바꾸면 기존 voiceprint는 재등록 대상(`outdated`).
 

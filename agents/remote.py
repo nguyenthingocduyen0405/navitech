@@ -64,6 +64,7 @@ SYSTEM_NAMES = {"group": "그룹", "k_electronics": "K전자"}
 
 # 위임 · A2A 결과를 "생각" 블록에 보여 줄 때의 최대 길이 (전체 답변은 Super Agent가 종합)
 MAX_STATUS_CHARS = 600
+CORRECTION_TOOL = "correct_transcript"  # backend가 회의 Agent보다 먼저 녹음 변환본을 교정할 때도 이 Tool 이벤트로 알림
 # backend는 요청 문자열 하나만 받으므로, 이전 대화는 최근 몇 개만 요청 앞에 붙입니다.
 MAX_HISTORY_MESSAGES = 6
 MAX_HISTORY_CHARS = 1500
@@ -128,8 +129,11 @@ def allowed_specialists(ctx: UserContext) -> list[str]:
 
 def principal(ctx: UserContext) -> dict:
     """backend에 보내는 사용자 정보. Agent(LLM)가 아니라 backend의 Tool이 읽습니다."""
-    return {"email": ctx.email, "name": ctx.name, "groups": sorted(ctx.groups), "clearance": ctx.clearance,
-            "agents": allowed_specialists(ctx)}
+    out = {"email": ctx.email, "name": ctx.name, "groups": sorted(ctx.groups), "clearance": ctx.clearance,
+           "agents": allowed_specialists(ctx)}
+    if ctx.user_id:
+        out["user_id"] = ctx.user_id
+    return out
 
 
 def principal_token(ctx: UserContext, key: str, now: float | None = None) -> str:
@@ -138,6 +142,8 @@ def principal_token(ctx: UserContext, key: str, now: float | None = None) -> str
     claims = {"iss": PRINCIPAL_ISSUER, "aud": PRINCIPAL_AUDIENCE, "iat": issued, "exp": issued + PRINCIPAL_TTL_SECONDS,
               "sub": ctx.email, "name": ctx.name, "groups": sorted(ctx.groups), "clearance": ctx.clearance,
               "agents": allowed_specialists(ctx)}
+    if ctx.user_id:
+        claims["user_id"] = ctx.user_id  # 회의 출석 → 그 사람의 목소리(voiceprint) 키
     return jwt.encode(claims, key, algorithm="HS256")
 
 
@@ -303,6 +309,8 @@ class RemoteAgent:
                 status = f"{agent_label(event.get('from'), system)} → {agent_label(event.get('to'), None)} A2A 요청: {event.get('request', '')}"
             elif kind == "a2a_end":
                 status = f"{agent_label(event.get('to'), None)} A2A 응답: {_clip(event.get('response', ''), MAX_STATUS_CHARS)}"
+            elif kind == "tool_start" and event.get("tool") == CORRECTION_TOOL and (event.get("args") or {}).get("lines"):
+                status = f"{agent_label(event.get('agent'), system)}: 녹음 변환본 교정 중 ({event['args']['lines']}줄)"
             elif kind == "tool_start":
                 args = json.dumps(event.get("args", {}), ensure_ascii=False)
                 status = f"{agent_label(event.get('agent'), system)}: {event.get('tool')} 실행 {_clip(args, 300)}"
@@ -310,7 +318,13 @@ class RemoteAgent:
                 for doc_id in cited_documents(event):
                     yield AgentEvent.citation(doc_id)
                 cards += cards_from(event)
-                status = f"{agent_label(event.get('agent'), system)}: {event.get('tool')} 완료"
+                result = event.get("result")
+                if event.get("tool") == CORRECTION_TOOL and isinstance(result, dict) and result.get("summary"):
+                    # 녹음 변환본 교정: 몇 줄을 어떻게 고쳤는지, 모델 교정이 실패한 구간 (실패해도 회의록은 이어서 씀)
+                    head = "변환본 교정 실패" if result.get("failed") else "변환본 교정"
+                    status = f"{agent_label(event.get('agent'), system)}: {head} — {_clip(result['summary'], MAX_STATUS_CHARS)}"
+                else:
+                    status = f"{agent_label(event.get('agent'), system)}: {event.get('tool')} 완료"
             if status:
                 if answered:
                     # Tool · 위임 앞에 쓴 문장과 그 뒤의 답변이 붙지 않게 합니다.
