@@ -1393,18 +1393,23 @@
 
   const progressBar = (done, total) => h('div', { class: 'nv-bar' }, h('span', { style: `width:${total ? Math.round((done / total) * 100) : 0}%` }));
 
+  // 지표를 누르면 오른쪽 칸에 그 목록: 진행 중 · 기록 대기 회의 (#home/live), 예정된 회의 (#home/upcoming), 담당자별 분공 (#home/people)
   function kpis(d) {
     const live = d.meetings.filter((m) => m.phase === 'live');
-    const next = d.meetings.find((m) => m.phase === 'upcoming');
+    const pending = d.meetings.filter((m) => m.phase === 'pending');
+    const upcoming = d.meetings.filter((m) => m.phase === 'upcoming');
+    const next = upcoming[0];
     const items = d.meetings.reduce((a, m) => (m.items ? [a[0] + m.items.done, a[1] + m.items.total, a[2] + m.items.overdue] : a), [0, 0, 0]);
-    const kpi = (cls, label, value, small, extra, id) => h(id ? 'a' : 'div', id ? { class: `nv-kpi link ${cls}${deskRoute().id === id ? ' sel' : ''}`, href: deskLink('home', id), 'data-kpi': id } : { class: `nv-kpi ${cls}` },
-      h('span', {}, label, id ? h('em', {}, '담당자별 →') : ''), h('b', {}, value, small ? h('small', {}, small) : ''), extra || '');
+    const kpi = (cls, label, value, small, extra, id, hint) => h(id ? 'a' : 'div', id ? { class: `nv-kpi link ${cls}${deskRoute().id === id ? ' sel' : ''}`, href: deskLink('home', id), 'data-kpi': id } : { class: `nv-kpi ${cls}` },
+      h('span', {}, label, id ? h('em', {}, hint) : ''), h('b', {}, value, small ? h('small', {}, small) : ''), extra || '');
     return h('div', { class: 'nv-kpis' },
-      kpi(live.length ? 'live' : '', '진행 중인 회의', String(live.length), live[0] ? (live[0].title.length > 15 ? `${live[0].title.slice(0, 14)}…` : live[0].title) : '없음'),
-      kpi('', '예정된 회의', String(d.meetings.filter((m) => m.phase === 'upcoming').length), next ? `다음 ${md(next.starts_at)} ${next.starts_at.slice(11)}` : ''),
+      kpi(live.length ? 'live' : '', '진행 중인 회의', String(live.length),
+        live[0] ? (live[0].title.length > 15 ? `${live[0].title.slice(0, 14)}…` : live[0].title) : pending.length ? `기록 대기 ${pending.length}` : '없음',
+        '', live.length || pending.length ? 'live' : '', '목록 →'),
+      kpi('', '예정된 회의', String(upcoming.length), next ? `다음 ${md(next.starts_at)} ${next.starts_at.slice(11)}` : '', '', upcoming.length ? 'upcoming' : '', '일정 →'),
       kpi(d.counts.alarm ? 'live' : d.counts.warn ? 'warn' : '', '확인이 필요한 주제', String(d.counts.alarm + d.counts.warn),
         d.counts.alarm ? `이상 ${d.counts.alarm} · 주의 ${d.counts.warn}` : `주의 ${d.counts.warn}`),
-      kpi(items[2] ? 'warn' : '', '분공 진행', `${items[1] ? Math.round((items[0] / items[1]) * 100) : 0}%`, `${items[0]}/${items[1]}${items[2] ? ` · 지남 ${items[2]}` : ''}`, progressBar(items[0], items[1]), 'people'));
+      kpi(items[2] ? 'warn' : '', '분공 진행', `${items[1] ? Math.round((items[0] / items[1]) * 100) : 0}%`, `${items[0]}/${items[1]}${items[2] ? ` · 지남 ${items[2]}` : ''}`, progressBar(items[0], items[1]), 'people', '담당자별 →'));
   }
 
   function subjectTabs(d, reload) {
@@ -1824,8 +1829,50 @@
       h('div', { class: 'nv-ask-chips' }, suggestions.map((t) => h('button', { class: 'nv-ask-chip', type: 'button', onclick: () => send(t) }, t))));
   }
 
+  // ---- 진행 중 · 예정된 회의 목록 (Google Calendar의 일정 보기처럼 날짜별). 회의를 누르면 그 회의 칸 (녹음 놓기 · 준비)
+  function meetingsDrawer(id, drawer) {
+    const render = async () => {
+      const d = await api('control');
+      if (deskRoute().id !== id) return;
+      const of = (phase) => d.meetings.filter((m) => m.phase === phase);
+      const row = (m, meta, chip) => listItem({ key: 'home', id: m.id, title: m.title, meta: [meta, m.subject].filter(Boolean).join(' · '), chips: chip });
+      const group = (title, rows) => (rows.length ? [h('div', { class: 'nv-group-title' }, title), rows] : []);
+      let head;
+      let body;
+      let foot;
+      if (id === 'live') {
+        const [live, pending] = [of('live'), of('pending')];
+        head = drawerHead('진행 중인 회의', `진행 중 ${live.length} · 기록 대기 ${pending.length}`,
+          live.length ? h('span', { class: 'nv-st live' }, h('span', { class: 'nv-lamp alarm' }), '회의 중') : h('span', { class: 'nv-st warn' }, '녹음 대기'));
+        body = [
+          group(`진행 중 ${live.length}`, live.map((m) => row(m, m.time, h('span', { class: 'nv-st live' }, `${minutesSince(m.starts_at)}분째`)))),
+          group(`기록 대기 ${pending.length} — 지난 날짜, 회의록 없음`, pending.map((m) => row(m, when(m.date, m.time), h('span', { class: 'nv-st warn' }, '회의록 없음')))),
+        ];
+        foot = '회의가 끝나면 회의를 열고 녹음 파일을 놓으세요 — 회의록 · 결정 · 분공은 회의 Agent가 정리합니다';
+      } else {
+        const list = of('upcoming');
+        const days = new Map();
+        for (const m of list) days.set(m.date, [...(days.get(m.date) || []), m]);
+        const ahead = (iso) => {
+          const n = Math.round((new Date(`${iso}T00:00:00`) - new Date(`${d.today}T00:00:00`)) / 86400000);
+          return n === 0 ? '오늘' : n === 1 ? '내일' : `${n}일 뒤`;
+        };
+        head = drawerHead('예정된 회의', list.length ? `${list.length}건 · ${dateLabel(list[0].date)} ~ ${dateLabel(list[list.length - 1].date)}` : '예정된 회의가 없습니다',
+          list[0] ? h('span', { class: 'nv-st plan' }, `다음 ${ahead(list[0].date)} ${list[0].starts_at.slice(11)}`) : '');
+        body = [...days].map(([iso, ms]) => group(`${dateLabel(iso)} · ${ahead(iso)}`, ms.map((m) => row(m, m.time, h('span', { class: 'nv-chip' }, '예정')))));
+        foot = '회의를 열면 참석 대상 · 안건을 보고, 준비 자료 정리를 회의 Agent에게 맡길 수 있습니다';
+      }
+      body = body.flat(Infinity);
+      drawer.replaceChildren(head, h('div', { class: 'nv-dw-body' }, body.length ? body : empty('회의가 없습니다')),
+        h('div', { class: 'nv-dw-foot' }, h('span', { class: 'nv-meta' }, foot)));
+    };
+    drawer.replaceChildren(h('div', { class: 'nv-loading' }, '불러오는 중…'));
+    render().catch((e) => drawer.replaceChildren(h('div', { class: 'nv-loading' }, `불러오지 못했습니다: ${e.message}`)));
+  }
+
   function drawerFor(id, drawer) {
     if (id === 'people') { peopleDrawer(drawer); return; }
+    if (id === 'live' || id === 'upcoming') { meetingsDrawer(id, drawer); return; }
     drawer.replaceChildren(h('div', { class: 'nv-loading' }, '불러오는 중…'));
     (async () => {
       try {
