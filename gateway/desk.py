@@ -36,8 +36,8 @@ ENDPOINTS = ("overview", "mail", "flags", "items", "meeting", "schedule", "repor
              "watch", "control", "finalize")
 FIELDS = ("action", "view", "meeting_id", "mail_ids", "email", "note", "reviews", "item_id", "status",
           "title", "starts_at", "ends_at", "location", "attendees", "agenda", "classification", "kind", "owner", "due",
-          "query", "offset", "code", "token", "voice_consent", "source_name", "speaker", "person", "signal_id")
-READ_ACTIONS = ("list", None, "status")
+          "query", "offset", "code", "token", "voice_consent", "source_name", "speaker", "person", "signal_id", "carry_over_from")
+READ_ACTIONS = ("list", None, "status", "draft")  # draft: 예약 전 점검 (저장 · 메일 없음)
 PERMISSION = "meeting-agent"  # 회의지원 Agent를 쓸 수 있는 사용자만
 TIMEOUT = httpx.Timeout(20.0, connect=5.0)
 PEOPLE_LIMIT = 8

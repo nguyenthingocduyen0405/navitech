@@ -144,6 +144,26 @@ def test_meeting_tool_results_become_card_blocks_after_the_answer(audit):
                      {"card": "mail", "ids": ["MAIL-7", "MAIL-8"]}]  # nothing for failures or for K Electronics' store
 
 
+def test_a_booking_left_open_shows_as_a_form_and_a_booking_made_does_not(audit):
+    draft = {"ok": True, "action": "draft", "draft": {"title": "공급망 회의", "date": "2026-11-05", "start": None, "attendees": []},
+             "missing": ["start", "attendees"], "assumed": [], "conflicts": [], "unclear": [], "complete": False}
+
+    def answer(*events):
+        body = ndjson(*events, group({"type": "agent_token", "agent": "meeting", "text": "몇 시에 할까요?"}), group({"type": "done"}))
+        with make_client(FakeBackend(body), audit) as client:
+            content = chat(client, "meeting-agent", "ceo@example.com").json()["choices"][0]["message"]["content"]
+        return [json.loads(b.removesuffix("\n```")) for b in content.split("\n\n```navitech\n")[1:]]
+
+    looked = group({"type": "tool_end", "agent": "meeting", "tool": "run_meeting_schedule",  # today's date first
+                    "result": {"ok": True, "action": "list", "meetings": [{"id": "MTG-2026-11-06-01"}]}})
+    checked = group({"type": "tool_end", "agent": "meeting", "tool": "run_meeting_schedule", "result": draft})
+    [form] = answer(looked, checked)
+    assert form["card"] == "schedule_form" and form["draft"]["title"] == "공급망 회의" and form["missing"] == ["start", "attendees"]
+    booked = group({"type": "tool_end", "agent": "meeting", "tool": "run_meeting_schedule",
+                    "result": {"ok": True, "action": "create", "meeting": {"id": "MTG-2026-11-05-01"}, "mail_queued": [{"id": "MAIL-9"}]}})
+    assert answer(checked, booked) == [{"card": "meeting", "id": "MTG-2026-11-05-01"}, {"card": "mail", "ids": ["MAIL-9"]}]
+
+
 def test_items_changed_one_by_one_show_together(audit):
     def nudged(item, mail):
         return group({"type": "tool_end", "agent": "meeting", "tool": "update_action_item",

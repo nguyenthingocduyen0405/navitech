@@ -579,6 +579,7 @@
   .nv-btn{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 12px;border-radius:9px;border:1px solid var(--nv-line);
     background:var(--nv-bg);color:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap}
   .nv-btn:hover{border-color:var(--nv-muted)}
+  a.nv-btn{text-decoration:none}
   .nv-btn.small{height:27px;padding:0 10px;font-size:12.5px}
   .nv-btn.primary{background:var(--nv-brand);border-color:transparent;color:#fff}
   .nv-btn.rec{background:linear-gradient(135deg,#BC82F3,#FF6778 60%,#FFBA71);border-color:transparent;color:#fff}
@@ -590,6 +591,27 @@
   .nv-assign{display:grid;grid-template-columns:1fr 150px auto;gap:6px;margin-top:6px}
   .nv-assign[hidden]{display:none}
   .nv-assign .nv-input{margin:0}
+  .nv-book .nv-bbody{padding:2px 16px 12px}
+  .nv-book .nv-f{margin-top:10px}
+  .nv-book .nv-f>span{display:block;font-size:12.5px;font-weight:700;color:var(--nv-muted)}
+  .nv-book .nv-f>span em{font-style:normal;font-size:11px;color:#dc2626;margin-left:6px;display:none}
+  .nv-book .nv-f.need>span em{display:inline}
+  .nv-book .nv-f.need>.nv-input{border-color:#dc2626;background:rgba(220,38,38,.04)}
+  .nv-book .nv-row3{display:grid;grid-template-columns:1.5fr 1fr 1fr;gap:8px}
+  .nv-book .nv-bnotes{padding:0 16px 4px}
+  .nv-book .nv-bnote{display:flex;gap:8px;align-items:flex-start;padding:3px 0;font-size:12.5px}
+  .nv-book .nv-bnote.warn{color:#c2410c}.nv-book .nv-bnote.danger{color:#dc2626}
+  .nv-bp{display:flex;align-items:center;gap:8px;padding:7px 10px;margin-top:6px;border:1px solid var(--nv-line);border-radius:10px;font-size:13px}
+  .nv-bp.warn{border-color:rgba(234,88,12,.45);background:rgba(234,88,12,.05)}
+  .nv-sel{height:28px;padding:0 6px;border:1px solid var(--nv-line);border-radius:8px;background:var(--nv-bg);color:inherit;font-size:12.5px;max-width:100%}
+  .nv-sel.grow{flex:1;min-width:0}.nv-sel.need{border-color:#dc2626}
+  .nv-bx{flex:none;width:26px;height:26px;border:0;border-radius:7px;background:none;color:var(--nv-muted);font-size:16px;cursor:pointer}
+  .nv-bx:hover{background:var(--nv-sub)}
+  .nv-addrow{display:flex;gap:6px;align-items:center;margin-top:6px}.nv-addrow .nv-input{margin:0}
+  .nv-sug{display:inline-flex;align-items:center;margin:6px 6px 0 0;height:26px;padding:0 10px;border-radius:999px;border:1px dashed var(--nv-line);
+    background:none;color:var(--nv-brand);font-size:12px;font-weight:700;cursor:pointer}
+  .nv-check{display:flex;gap:8px;align-items:flex-start;margin-top:6px;font-size:13px;cursor:pointer}
+  .nv-check input{margin-top:3px;accent-color:var(--nv-brand)}
   .nv-notice{position:fixed;bottom:110px;left:50%;transform:translateX(-50%);z-index:9999;padding:10px 16px;border-radius:12px;
     background:rgba(17,17,22,.94);color:#fff;font-size:13.5px;box-shadow:0 10px 30px rgba(0,0,0,.2)}
   .nv-filter{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 4px}
@@ -693,6 +715,56 @@
     .nv-brand{width:auto}.nv-brand small{display:none}.nv-tiles{grid-template-columns:repeat(2,minmax(0,1fr))}.nv-main{padding:16px 16px 48px}}
   @media (max-width:640px){.nv-search,.nv-ghost{display:none}}
   .nv-ctl-head{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin-bottom:14px}
+  .nv-ctl-tools{display:flex;align-items:center;gap:12px}
+  .nv-mpanel{display:flex;flex-direction:column;gap:10px;min-width:0}
+  .nv-today{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:10px 14px;border:1px solid var(--nv-line);border-radius:14px;background:var(--nv-bg)}
+  .nv-today-main{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
+  .nv-today-main>b{font-size:14.5px;margin-right:2px}
+  .nv-tc{display:inline-flex;align-items:center;gap:5px;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:700;background:var(--nv-sub);color:var(--nv-muted)}
+  .nv-tc.done{color:#0f9d58;background:rgba(15,157,88,.1)}
+  .nv-tc.live.on{color:#dc2626;background:rgba(220,38,38,.1)}
+  .nv-tc.up{color:var(--nv-brand);background:rgba(91,91,214,.1)}
+  .nv-today-next{font-size:12.5px;font-weight:600;color:inherit;text-decoration:none;padding:2px 4px;border-radius:6px}
+  .nv-today-next:hover{color:var(--nv-brand)}
+  .nv-cal{margin:0;max-width:none}
+  .nv-cal-nav{display:flex;align-items:center;gap:6px;padding:10px 14px;border-bottom:1px solid var(--nv-line)}
+  .nv-cal-nav b{margin-left:6px;font-size:14px}
+  .nv-wk{overflow-x:auto}
+  .nv-wk-head,.nv-wk-body{display:grid;grid-template-columns:48px repeat(7,minmax(92px,1fr));min-width:720px}
+  .nv-wk-head{border-bottom:1px solid var(--nv-line)}
+  .nv-wk-day{display:flex;flex-direction:column;align-items:center;padding:6px 0 7px;font-size:12px;color:var(--nv-muted);border-left:1px solid var(--nv-line)}
+  .nv-wk-day b{font-size:17px;line-height:1.3;color:var(--nv-fg,inherit)}
+  .nv-wk-day em{font-style:normal;font-size:11px;font-weight:700;color:var(--nv-brand)}
+  .nv-wk-day.today b{display:inline-grid;place-items:center;width:30px;height:30px;border-radius:50%;background:var(--nv-brand);color:#fff}
+  .nv-wk-times{position:relative;font-size:11px;color:var(--nv-muted)}
+  .nv-wk-times span{position:absolute;right:6px;transform:translateY(-6px)}
+  .nv-wk-col{position:relative;border-left:1px solid var(--nv-line);background:repeating-linear-gradient(to bottom,transparent 0,transparent 45px,var(--nv-line) 45px,var(--nv-line) 46px)}
+  .nv-wk-col.past{background-color:rgba(0,0,0,.015)}
+  .nv-wk-col.today{background-color:rgba(91,91,214,.04)}
+  .nv-ev{position:absolute;display:flex;flex-direction:column;overflow:hidden;padding:3px 6px;border-radius:7px;border-left:3px solid var(--nv-brand);
+    background:rgba(91,91,214,.13);color:inherit;text-decoration:none;font-size:11.5px;line-height:1.3;transition:box-shadow .15s}
+  .nv-ev b{font-size:11px}.nv-ev span{font-weight:600;overflow:hidden;text-overflow:ellipsis}.nv-ev small{color:var(--nv-muted);font-size:10.5px}
+  .nv-ev:hover,.nv-ev.sel{box-shadow:0 0 0 2px var(--nv-brand);z-index:2}
+  .nv-ev.done{border-left-color:#0f9d58;background:rgba(15,157,88,.11)}
+  .nv-ev.draft{border-left-color:#c2410c;background:rgba(234,88,12,.1)}
+  .nv-ev.live{border-left-color:#dc2626;background:rgba(220,38,38,.13)}
+  .nv-ev.pending{border-left-color:#c2410c;background:repeating-linear-gradient(135deg,rgba(234,88,12,.1) 0 6px,rgba(234,88,12,.04) 6px 12px)}
+  .nv-now{position:absolute;left:-1px;right:0;height:2px;background:#dc2626;z-index:3;pointer-events:none}
+  .nv-now::before{content:'';position:absolute;left:-5px;top:-4px;width:10px;height:10px;border-radius:50%;background:#dc2626}
+  .nv-mo{display:grid;grid-template-columns:repeat(7,minmax(0,1fr))}
+  .nv-mo-w{padding:6px 8px;font-size:11.5px;font-weight:700;color:var(--nv-muted);border-bottom:1px solid var(--nv-line)}
+  .nv-mo-day{min-height:92px;padding:5px 6px;border-bottom:1px solid var(--nv-line);border-left:1px solid var(--nv-line);cursor:pointer;min-width:0}
+  .nv-mo-day:nth-child(7n+1){border-left:0}
+  .nv-mo-day:hover{background:var(--nv-sub)}
+  .nv-mo-day.out{opacity:.45}
+  .nv-mo-day>b{display:inline-grid;place-items:center;min-width:22px;height:22px;border-radius:50%;font-size:12px}
+  .nv-mo-day.today>b{background:var(--nv-brand);color:#fff}
+  .nv-mo-ev{display:flex;align-items:center;gap:5px;margin-top:3px;padding:1px 4px;border-radius:5px;font-size:11.5px;color:inherit;text-decoration:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .nv-mo-ev:hover,.nv-mo-ev.sel{background:rgba(91,91,214,.12)}
+  .nv-mo-ev i{flex:none;width:7px;height:7px;border-radius:50%;background:var(--nv-brand)}
+  .nv-mo-ev.done i{background:#0f9d58}.nv-mo-ev.draft i,.nv-mo-ev.pending i{background:#c2410c}.nv-mo-ev.live i{background:#dc2626}
+  .nv-mo-more{display:block;margin-top:2px;font-size:11px;color:var(--nv-muted);font-weight:700}
+  .nv-drawer .nv-book .nv-head{display:none}
   .nv-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:10px}
   .nv-kpi{padding:12px 14px;border-radius:14px;border:1px solid var(--nv-line);background:var(--nv-bg)}
   .nv-kpi>span{display:block;font-size:12px;font-weight:700;color:var(--nv-muted)}
@@ -1266,6 +1338,177 @@
     });
   }
 
+  // ---- 회의 예약 양식: 회의지원 Agent가 점검한 예약 요청(schedule draft) 또는 관제의 '+ 회의 예약'.
+  // 빠진 칸은 빨갛게, 여러 사람에 맞는 이름은 후보에서 고르고, 기록으로 채운 것(가정) · 겹치는 회의를 보인다.
+  // 날짜 · 시각 · 참석자 · 회의명을 바꾸면 다시 점검한다. 보내면 Agent 없이 예약하고 참석자에게 안내 메일 (desk schedule create).
+  const ROLE_PICK = [['', '참석'], ['chair', '의장'], ['secretary', '간사']];
+  const ROLE_WORD = { chair: '의장', secretary: '간사' };
+  const hhmm = (m) => `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+  const nextHour = () => hhmm((new Date().getHours() + 1) * 60);
+  const plusHour = (t) => (t ? hhmm(t.split(':').map(Number).reduce((hh, mm) => hh * 60 + mm) + 60) : '');
+  const withRole = (label, role) => (!role ? label : label.endsWith(')') ? `${label.slice(0, -1)}, ${ROLE_WORD[role]})` : `${label} (${ROLE_WORD[role]})`);
+
+  function bookingForm(seed, { onBooked }) {
+    const d = seed.draft || {};
+    const person = (a, old) => ({ ...a, role: (old && old.role) || a.role || '', pick: (old && old.pick) || '' });
+    const st = {
+      title: d.title || '', date: d.date || '', start: d.start || '', end: d.end || '', location: d.location || '', level: d.classification || 2,
+      people: (d.attendees || []).map((a) => person(a)), agenda: [...(d.agenda || [])],
+      carryFrom: d.carry_over_from || null, carried: d.carried || [], carry: !!d.carry_over_from, picks: new Set(),
+    };
+    let info = seed;
+    const seen = new Set(seed.assumed || []); // 기록으로 채운 것은 다시 점검해도 계속 보인다 (채운 뒤에는 더 가정하지 않으므로)
+    let timer = null;
+    const box = h('div', { class: 'nv-book' });
+    const labelOf = (p) => (p.status === 'ambiguous' ? p.pick : p.label);
+
+    // 지금 칸들로 다시 점검 (사람 확인 · 겹치는 회의 · 지난 회의에서 채울 것)
+    const recheck = () => {
+      clearTimeout(timer);
+      timer = setTimeout(async () => {
+        const res = await api('schedule', {
+          action: 'draft', title: st.title || undefined, starts_at: st.date ? (st.start ? `${st.date} ${st.start}` : st.date) : undefined,
+          ends_at: st.date && st.end ? `${st.date} ${st.end}` : undefined, location: st.location || undefined,
+          attendees: st.people.map((p) => labelOf(p) || p.input).filter(Boolean), agenda: st.agenda, carry_over_from: st.carryFrom || undefined,
+        }).catch(() => null);
+        if (!res || res.ok === false) return;
+        const old = new Map(st.people.map((p) => [p.input, p]));
+        st.people = (res.draft.attendees || []).map((a) => person(a, old.get(a.input)));
+        if (!st.location && res.draft.location) st.location = res.draft.location;
+        if (!st.end && res.draft.end) st.end = res.draft.end;
+        if (!st.carryFrom && res.draft.carry_over_from) Object.assign(st, { carryFrom: res.draft.carry_over_from, carried: res.draft.carried, carry: true });
+        (res.assumed || []).forEach((t) => seen.add(t));
+        info = { ...res, previous: res.previous || info.previous };
+        render();
+      }, 500);
+    };
+
+    const textField = (label, key, { need, type = 'text', placeholder = '', check = false } = {}) => {
+      const wrap = h('div', { class: `nv-f${need && !st[key] ? ' need' : ''}` }, h('span', {}, label, need ? h('em', {}, '필수') : ''));
+      wrap.append(h('input', { class: 'nv-input', type, value: st[key] || '', placeholder,
+        oninput: (e) => { st[key] = e.target.value; if (need) wrap.classList.toggle('need', !e.target.value); },
+        onchange: () => { if (key === 'start' && st.start && !st.end) st.end = plusHour(st.start); if (check) recheck(); } }));
+      return wrap;
+    };
+
+    function personRow(p, i) {
+      const remove = h('button', { class: 'nv-bx', type: 'button', title: '빼기', onclick: () => { st.people.splice(i, 1); render(); recheck(); } }, '×');
+      const role = h('select', { class: 'nv-sel', title: '회의에서의 역할', onchange: (e) => { p.role = e.target.value; } },
+        ROLE_PICK.map(([v, t]) => h('option', { value: v, selected: p.role === v }, t)));
+      if (p.status === 'ambiguous') {
+        const pick = h('select', { class: `nv-sel grow${p.pick ? '' : ' need'}`, onchange: (e) => { p.pick = e.target.value; pick.classList.toggle('need', !p.pick); } },
+          h('option', { value: '' }, `'${p.input}' — 누구인가요?`),
+          (p.candidates || []).map((c) => h('option', { value: c.label, selected: p.pick === c.label }, `${c.label}${c.email ? ` · ${c.email}` : ''}`)));
+        return h('div', { class: 'nv-bp warn' }, pick, role, remove);
+      }
+      return h('div', { class: `nv-bp${p.status === 'new' ? ' warn' : ''}` },
+        h('div', { class: 'nv-grow' }, h('b', {}, p.label), p.guessed ? h('span', { class: 'nv-meta' }, ` ← '${p.input}'`) : '',
+          h('div', { class: `nv-meta${p.status === 'new' ? ' nv-warn' : ''}` },
+            p.status === 'new' ? '기록에 없는 사람 — 안내 메일을 보낼 주소가 없습니다' : p.email || '주소는 메일을 보낼 때 찾습니다')),
+        role, remove);
+    }
+
+    function render() {
+      const missing = [!st.title && '회의명', !st.date && '날짜', !st.start && '시작 시각', !st.people.length && '참석자'].filter(Boolean);
+      const unclear = st.people.filter((p) => p.status !== 'found').length;
+      const add = h('input', { class: 'nv-input', placeholder: '이름 · 직함 (예: 박 상무, 재무실장)', list: 'nv-book-people',
+        onkeydown: (e) => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); addPerson(); } },
+        oninput: () => searchPeople(add.value) });
+      const addPerson = () => {
+        const v = add.value.trim();
+        if (!v) return;
+        st.people.push({ input: v, label: v, status: 'new', role: '', pick: '' });
+        render();
+        recheck();
+      };
+      const sug = ((info.suggestions || {}).attendees || []).filter((s) => !st.people.some((p) => labelOf(p) === s || p.label === s));
+      const notes = [
+        info.previous ? ['이어짐', `${info.previous.title} (${info.previous.date}) · ${info.previous.id}`, ''] : null,
+        ...[...seen].map((t) => ['가정', t, '']),
+        ...(info.conflicts || []).map((t) => ['겹침', t, 'warn']),
+        ...(info.problems || []).map((t) => ['확인', t, 'danger']),
+      ].filter(Boolean);
+      box.replaceChildren(
+        head('회의 예약', missing.length || unclear ? `${missing.length ? `빠진 것: ${missing.join(' · ')}` : ''}${missing.length && unclear ? ' · ' : ''}${unclear ? `확인할 사람 ${unclear}명` : ''}`
+          : '빠진 것이 없습니다 — 확인하고 보내 주세요', h('span', { class: `nv-chip${missing.length || unclear ? ' draft' : ' final'}` }, '예약 전')),
+        notes.length ? h('div', { class: 'nv-bnotes' }, notes.map(([tag, text, tone]) => h('div', { class: `nv-bnote ${tone}` }, h('span', { class: 'nv-tag' }, tag), h('div', {}, text)))) : '',
+        h('div', { class: 'nv-bbody' },
+          textField('회의명', 'title', { need: true, placeholder: '예: 천안 신공장 2단계 준비 회의', check: true }),
+          h('div', { class: 'nv-row3' }, textField('날짜', 'date', { need: true, type: 'date', check: true }),
+            textField('시작', 'start', { need: true, type: 'time', check: true }), textField('끝', 'end', { type: 'time', check: true })),
+          textField('장소', 'location', { placeholder: '회의실 또는 화상회의 링크' }),
+          h('div', { class: `nv-f${st.people.length ? '' : ' need'}` }, h('span', {}, `참석자 ${st.people.length}명`, h('em', {}, '필수')),
+            st.people.map(personRow),
+            h('div', { class: 'nv-addrow' }, add, h('button', { class: 'nv-btn small', type: 'button', onclick: addPerson }, '추가')),
+            sug.length ? h('div', {}, sug.map((s) => h('button', { class: 'nv-sug', type: 'button', title: '지난 회의 참석자',
+              onclick: () => { st.people.push({ input: s, label: s, status: 'found', role: '', pick: '' }); render(); recheck(); } }, `+ ${s}`))) : ''),
+          h('div', { class: 'nv-f' }, h('span', {}, '안건'),
+            st.carried.length ? h('label', { class: 'nv-check' }, h('input', { type: 'checkbox', checked: st.carry, onchange: (e) => { st.carry = e.target.checked; } }),
+              h('div', {}, h('b', {}, `지난 회의(${st.carryFrom})에서 이어 받기`), st.carried.map((t) => h('div', { class: 'nv-meta' }, `· ${t}`)))) : '',
+            st.agenda.map((t, i) => h('div', { class: 'nv-addrow' },
+              h('input', { class: 'nv-input', value: t, oninput: (e) => { st.agenda[i] = e.target.value; } }),
+              h('button', { class: 'nv-bx', type: 'button', onclick: () => { st.agenda.splice(i, 1); render(); } }, '×'))),
+            h('button', { class: 'nv-sug', type: 'button', onclick: () => { st.agenda.push(''); render(); box.querySelectorAll('.nv-addrow input')[st.agenda.length - 1 + 0]?.focus(); } }, '+ 안건 추가'),
+            ((info.suggestions || {}).agenda || []).length ? h('div', { class: 'nv-meta', style: 'margin-top:8px' }, '지난 회의의 열린 할 일 — 확인할 것을 안건에 넣기') : '',
+            ((info.suggestions || {}).agenda || []).map((s) => h('label', { class: 'nv-check' },
+              h('input', { type: 'checkbox', checked: st.picks.has(`${s.text} 진행 확인`), onchange: (e) => { const t = `${s.text} 진행 확인`; if (e.target.checked) st.picks.add(t); else st.picks.delete(t); } }),
+              h('div', {}, s.text, h('span', { class: 'nv-meta' }, ` · ${s.owner || '담당 미정'} · ${s.id}`))))),
+          h('div', { class: 'nv-f' }, h('span', {}, '회의 등급'),
+            h('select', { class: 'nv-sel', onchange: (e) => { st.level = Number(e.target.value); } },
+              [[1, '1 공개'], [2, '2 사내'], [3, '3 대외비'], [4, '4 극비']].map(([v, t]) => h('option', { value: v, selected: Number(st.level) === v }, t))))),
+        h('div', { class: 'nv-actions' },
+          h('button', { class: 'nv-btn primary', type: 'button', onclick: act(submit) }, '예약하고 안내 메일 보내기'),
+          h('span', { class: 'nv-meta', style: 'align-self:center' }, '참석자에게 회의 안내 메일이 바로 나갑니다')),
+        h('datalist', { id: 'nv-book-people' }));
+    }
+
+    let searching = null;
+    function searchPeople(q) {
+      clearTimeout(searching);
+      if (q.trim().length < 1) return;
+      searching = setTimeout(async () => {
+        const res = await api('people', { query: q.trim() }).catch(() => null);
+        const list = box.querySelector('#nv-book-people');
+        if (res && list) list.replaceChildren(...(res.people || []).map((p) => h('option', { value: p.name }, p.email)));
+      }, 250);
+    }
+
+    async function submit() {
+      const missing = [!st.title.trim() && '회의명', !st.date && '날짜', !st.start && '시작 시각', !st.people.length && '참석자',
+        st.people.some((p) => p.status === 'ambiguous' && !p.pick) && '애매한 참석자 고르기'].filter(Boolean);
+      if (missing.length) throw new Error(`${missing.join(' · ')}을(를) 채워 주세요`);
+      const out = await api('schedule', {
+        action: 'create', title: st.title.trim(), starts_at: `${st.date} ${st.start}`, ends_at: st.end ? `${st.date} ${st.end}` : undefined,
+        location: st.location.trim() || undefined, attendees: st.people.map((p) => withRole(labelOf(p), p.role)),
+        agenda: [...st.agenda.map((t) => t.trim()).filter(Boolean), ...st.picks], classification: Number(st.level),
+        carry_over_from: st.carry && st.carryFrom ? st.carryFrom : undefined,
+      });
+      if (out.ok === false || out.error) throw new Error(out.error || '예약하지 못했습니다');
+      notice(`예약했습니다 — ${out.meeting.id} · 안내 메일 ${(out.mail_queued || []).length}통`);
+      onBooked(out);
+    }
+
+    render();
+    return box;
+  }
+
+  // 채팅의 예약 양식 카드 — 이 양식으로 예약했으면 (다시 그려도) 예약된 회의를 보인다
+  function bookingCard(c, text) {
+    cardStyle();
+    let key = 0;
+    for (const ch of text || '') key = (key * 31 + ch.charCodeAt(0)) | 0;
+    const mark = `nv-booked:${key}`;
+    const done = (() => { try { return localStorage.getItem(mark); } catch { return null; } })();
+    if (done) return meetingCard(done);
+    const card = h('div', { class: 'nv-card' });
+    card.append(bookingForm(c, { onBooked: (out) => {
+      try { localStorage.setItem(mark, out.meeting.id); } catch { /* 이 화면에서만 */ }
+      const ids = (out.mail_queued || []).map((m) => m.id);
+      card.replaceWith(h('div', {}, meetingCard(out.meeting.id), ids.length ? mailCard(ids) : ''));
+    } }));
+    return card;
+  }
+
   // ---------------------------------------------------------------------------
   // 회의 업무 화면 (/meetings/): 위 검색 · 왼쪽 메뉴(건수) · 본문 — Linear · Gmail처럼 목록을 누르면 옆에 그 회의 카드가 열린다.
   // 구역은 주소의 # (#home · #inbox · #minutes · #schedule · #items · #mail, 고른 회의는 #minutes/MTG-…), 뒤로 가기가 된다.
@@ -1424,6 +1667,137 @@
     return h('div', { class: 'nv-tabs' }, tab('', '전체'), d.screens.map((s) => tab(s.subject, s.subject, s.state)));
   }
 
+  // ---- 회의를 보는 세 가지 (Google Calendar · Outlook처럼): 목록(표) · 주(시간 칸에 회의 블록, 지금 시각 빨간 선) · 월(날마다 회의).
+  // 위에는 늘 '오늘' 띠: 오늘 회의 몇 건 — 끝남 · 진행 중 · 남음, 다음 회의까지 남은 시간. 회의를 누르면 옆에 회의 칸. 주제 탭으로 거른다.
+  let ctlView = (() => { try { return localStorage.getItem('nv-ctl-view') || 'week'; } catch { return 'week'; } })();
+  let calDay = null; // 달력이 보는 날 (null = 오늘)
+  const CAL_H = 46; // 주 달력에서 1시간의 높이 (px)
+  const PHASE_LABEL = { done: '끝남', live: '진행 중', pending: '기록 대기', upcoming: '예정' };
+  const addDays = (iso, n) => { const t = new Date(`${iso}T00:00:00Z`); t.setUTCDate(t.getUTCDate() + n); return t.toISOString().slice(0, 10); };
+  const weekday = (iso) => new Date(`${iso}T00:00:00Z`).getUTCDay();
+  const toMin = (hm) => { const [hh, mm] = hm.split(':').map(Number); return hh * 60 + mm; };
+  const kstNow = () => new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date());
+  const span = (m) => { const s = toMin(m.starts_at.slice(11)); const e = (m.time || '').split('~')[1]; return [s, e ? Math.max(toMin(e), s + 15) : s + 60]; };
+  const phaseOf = (m) => (m.phase === 'done' && m.minutes !== 'final' ? 'draft' : m.phase);
+  const shown = (d) => d.meetings.filter((m) => !ctlFilter || m.subject === ctlFilter);
+
+  function setView(v, reload) {
+    ctlView = v;
+    try { localStorage.setItem('nv-ctl-view', v); } catch { /* 이 화면에서만 */ }
+    reload();
+  }
+
+  // 오늘 띠: 오늘 회의 수와 끝남 · 진행 중 · 남음, 다음 회의까지
+  function todayStrip(d, tools) {
+    const rows = shown(d).filter((m) => m.date === d.today).sort((a, b) => a.starts_at.localeCompare(b.starts_at));
+    const n = (p) => rows.filter((m) => m.phase === p).length;
+    const next = rows.find((m) => m.phase === 'upcoming');
+    let until = '';
+    if (next) {
+      const left = toMin(next.starts_at.slice(11)) - toMin(kstNow());
+      until = left <= 0 ? '곧 시작' : left < 60 ? `${left}분 뒤` : `${Math.floor(left / 60)}시간 ${left % 60 ? `${left % 60}분 ` : ''}뒤`;
+    }
+    return h('div', { class: 'nv-today' },
+      h('div', { class: 'nv-today-main' },
+        h('b', {}, `오늘 회의 ${rows.length}건`),
+        h('span', { class: 'nv-tc done' }, `끝남 ${n('done')}`),
+        h('span', { class: `nv-tc live${n('live') ? ' on' : ''}` }, n('live') ? h('span', { class: 'nv-lamp alarm' }) : '', `진행 중 ${n('live')}`),
+        h('span', { class: 'nv-tc up' }, `남음 ${n('upcoming')}`),
+        next ? h('a', { class: 'nv-today-next', href: deskLink('home', next.id), title: next.id }, `다음 ${next.starts_at.slice(11)} ${next.title} · ${until}`)
+          : h('span', { class: 'nv-meta' }, rows.length ? '오늘 남은 회의가 없습니다' : '오늘 잡힌 회의가 없습니다')),
+      tools);
+  }
+
+  function calNav(label, step, reload) {
+    const go = (n) => { calDay = n === 0 ? null : step(calDay || null, n); reload(); };
+    return h('div', { class: 'nv-cal-nav' },
+      h('button', { class: 'nv-btn small', type: 'button', onclick: () => go(-1), 'aria-label': '이전' }, '‹'),
+      h('button', { class: 'nv-btn small', type: 'button', onclick: () => go(0) }, '오늘'),
+      h('button', { class: 'nv-btn small', type: 'button', onclick: () => go(1), 'aria-label': '다음' }, '›'),
+      h('b', {}, label));
+  }
+
+  // 주 달력: 월~일 7칸 × 시간. 겹치는 회의는 나란히. 오늘 칸에 지금 시각 선
+  function weekCalendar(d, reload) {
+    const sel = deskRoute().id;
+    const anchor = calDay || d.today;
+    const start = addDays(anchor, -((weekday(anchor) + 6) % 7));
+    const days = [...Array(7)].map((_, i) => addDays(start, i));
+    const rows = shown(d).filter((m) => m.date >= days[0] && m.date <= days[6]);
+    const spans = rows.map(span);
+    const from = Math.min(8, ...spans.map(([s]) => Math.floor(s / 60)));
+    const to = Math.max(19, ...spans.map(([, e]) => Math.ceil(e / 60)));
+    const height = (to - from) * CAL_H;
+    const md2 = (iso) => `${Number(iso.slice(5, 7))}월 ${Number(iso.slice(8, 10))}일`;
+    const label = `${md2(days[0])} – ${days[0].slice(5, 7) === days[6].slice(5, 7) ? `${Number(days[6].slice(8, 10))}일` : md2(days[6])}`;
+    const step = (cur, n) => addDays(cur || d.today, n * 7);
+    const column = (iso) => {
+      const list = rows.filter((m) => m.date === iso).map((m) => ({ m, s: span(m)[0], e: span(m)[1] })).sort((a, b) => a.s - b.s);
+      const lanes = [];
+      for (const ev of list) {
+        let lane = lanes.findIndex((end) => end <= ev.s);
+        if (lane < 0) { lane = lanes.length; lanes.push(0); }
+        lanes[lane] = ev.e;
+        ev.lane = lane;
+      }
+      const width = 100 / Math.max(1, lanes.length);
+      const col = h('div', { class: `nv-wk-col${iso === d.today ? ' today' : iso < d.today ? ' past' : ''}`, style: `height:${height}px` },
+        list.map(({ m, s, e, lane }) => h('a', {
+          class: `nv-ev ${phaseOf(m)}${m.id === sel ? ' sel' : ''}`, href: deskLink('home', m.id), title: `${m.title} · ${m.time || ''} · ${PHASE_LABEL[m.phase] || ''}`,
+          style: `top:${((s - from * 60) / 60) * CAL_H}px;height:${Math.max(22, ((e - s) / 60) * CAL_H - 2)}px;left:calc(${lane * width}% + 2px);width:calc(${width}% - 4px)`,
+        }, h('b', {}, m.starts_at.slice(11)), h('span', {}, m.title), (e - s) >= 50 ? h('small', {}, `${m.subject || ''}${m.phase === 'done' ? ` · ${m.minutes === 'final' ? '확정' : '초안'}` : ` · ${PHASE_LABEL[m.phase] || ''}`}`) : '')));
+      if (iso === d.today) {
+        const now = toMin(kstNow());
+        if (now >= from * 60 && now <= to * 60) col.append(h('div', { class: 'nv-now', style: `top:${((now - from * 60) / 60) * CAL_H}px` }));
+      }
+      return col;
+    };
+    return h('div', { class: 'nv-card nv-cal' },
+      calNav(label, step, reload),
+      h('div', { class: 'nv-wk' },
+        h('div', { class: 'nv-wk-head' }, h('div', {}), days.map((iso) => {
+          const count = rows.filter((m) => m.date === iso).length;
+          return h('div', { class: `nv-wk-day${iso === d.today ? ' today' : ''}` }, h('span', {}, WEEK[weekday(iso)]), h('b', {}, String(Number(iso.slice(8, 10)))),
+            count ? h('em', {}, `${count}건`) : '');
+        })),
+        h('div', { class: 'nv-wk-body' },
+          h('div', { class: 'nv-wk-times', style: `height:${height}px` }, [...Array(to - from)].map((_, i) => h('span', { style: `top:${i * CAL_H}px` }, `${from + i}:00`))),
+          days.map(column))),
+      rows.length ? '' : empty('이 주에는 회의가 없습니다'));
+  }
+
+  // 월 달력: 날마다 회의 (3개까지, 나머지는 +n). 날을 누르면 그 주로
+  function monthCalendar(d, reload) {
+    const sel = deskRoute().id;
+    const anchor = calDay || d.today;
+    const first = `${anchor.slice(0, 8)}01`;
+    const start = addDays(first, -((weekday(first) + 6) % 7));
+    const cells = [...Array(42)].map((_, i) => addDays(start, i));
+    const rows = shown(d);
+    const step = (cur, n) => { const base = (cur || d.today).slice(0, 7).split('-').map(Number); const t = new Date(Date.UTC(base[0], base[1] - 1 + n, 1)); return t.toISOString().slice(0, 10); };
+    const label = `${anchor.slice(0, 4)}년 ${Number(anchor.slice(5, 7))}월`;
+    return h('div', { class: 'nv-card nv-cal' },
+      calNav(label, step, reload),
+      h('div', { class: 'nv-mo' },
+        ['월', '화', '수', '목', '금', '토', '일'].map((w) => h('div', { class: 'nv-mo-w' }, w)),
+        cells.map((iso) => {
+          const list = rows.filter((m) => m.date === iso).sort((a, b) => a.starts_at.localeCompare(b.starts_at));
+          return h('div', { class: `nv-mo-day${iso.slice(0, 7) !== anchor.slice(0, 7) ? ' out' : ''}${iso === d.today ? ' today' : ''}`, role: 'button', tabindex: '0',
+            title: '이 주 보기', onclick: (e) => { if (e.target.closest('a')) return; calDay = iso; setView('week', reload); } },
+            h('b', {}, String(Number(iso.slice(8, 10)))),
+            list.slice(0, 3).map((m) => h('a', { class: `nv-mo-ev ${phaseOf(m)}${m.id === sel ? ' sel' : ''}`, href: deskLink('home', m.id), title: `${m.title} · ${m.time || ''}` },
+              h('i', {}), `${m.starts_at.slice(11)} ${m.title}`)),
+            list.length > 3 ? h('span', { class: 'nv-mo-more' }, `+${list.length - 3}건`) : '');
+        })));
+  }
+
+  function meetingsPanel(d, reload) {
+    const seg = h('div', { class: 'nv-seg', role: 'tablist' }, [['list', '목록'], ['week', '주'], ['month', '월']].map(([k, t]) =>
+      h('button', { class: ctlView === k ? 'on' : '', type: 'button', role: 'tab', 'aria-selected': String(ctlView === k), onclick: () => setView(k, reload) }, t)));
+    return h('div', { class: 'nv-mpanel' }, todayStrip(d, seg),
+      ctlView === 'week' ? weekCalendar(d, reload) : ctlView === 'month' ? monthCalendar(d, reload) : meetingTable(d));
+  }
+
   function meetingTable(d) {
     const sel = deskRoute().id;
     const state = Object.fromEntries(d.screens.map((s) => [s.subject, s.state]));
@@ -1481,9 +1855,10 @@
       return [
         h('div', { class: 'nv-ctl-head' },
           h('div', {}, h('div', { class: 'nv-h1' }, '회의 관제'), h('div', { class: 'nv-meta' }, '회사의 모든 회의 — 끝난 회의는 녹음부터 메일까지 회의 Agent가 처리합니다')),
-          h('span', { class: 'nv-live' }, `실시간 · ${dateLabel(d.today)} ${now}`)),
+          h('div', { class: 'nv-ctl-tools' }, h('span', { class: 'nv-live' }, `실시간 · ${dateLabel(d.today)} ${now}`),
+            h('a', { class: 'nv-btn primary small', href: deskLink('home', 'new') }, '+ 회의 예약'))),
         kpis(d), subjectTabs(d, reload),
-        h('div', { class: 'nv-ctl-grid' }, meetingTable(d), activity(d, fresh, key)),
+        h('div', { class: 'nv-ctl-grid' }, meetingsPanel(d, reload), activity(d, fresh, key)),
       ];
     }, 'nv-region');
   }
@@ -1884,9 +2259,19 @@
     render().catch((e) => drawer.replaceChildren(h('div', { class: 'nv-loading' }, `불러오지 못했습니다: ${e.message}`)));
   }
 
+  // '+ 회의 예약': 빈 양식 (오늘 · 다음 정시 · 1시간). 회의명을 쓰면 같은 주제의 지난 회의에서 참석자 · 장소 · 이어지는 안건을 채운다
+  function bookingDrawer(drawer) {
+    const start = nextHour();
+    const seed = { draft: { date: todayIso(), start, end: plusHour(start), classification: 2, attendees: [], agenda: [] } };
+    drawer.replaceChildren(
+      drawerHead('회의 예약', '회의명을 쓰면 같은 주제의 지난 회의에서 참석자 · 장소 · 이어지는 안건을 채웁니다', h('span', { class: 'nv-st plan' }, '새 회의')),
+      h('div', { class: 'nv-dw-body' }, bookingForm(seed, { onBooked: (out) => { location.hash = deskLink('home', out.meeting.id); refreshAll(); } })));
+  }
+
   function drawerFor(id, drawer) {
     if (id === 'people') { peopleDrawer(drawer); return; }
     if (id === 'live' || id === 'upcoming') { meetingsDrawer(id, drawer); return; }
+    if (id === 'new') { bookingDrawer(drawer); return; }
     drawer.replaceChildren(h('div', { class: 'nv-loading' }, '불러오는 중…'));
     (async () => {
       try {
@@ -1913,6 +2298,7 @@
       drawer.hidden = !id;
       if (id) drawerFor(id, drawer); else drawer.replaceChildren();
       for (const el of list.querySelectorAll('tr.row')) el.classList.toggle('sel', el.dataset.id === id);
+      for (const el of list.querySelectorAll('.nv-ev, .nv-mo-ev')) el.classList.toggle('sel', el.getAttribute('href') === deskLink('home', id));
       for (const el of list.querySelectorAll('[data-kpi]')) el.classList.toggle('sel', el.dataset.kpi === id);
     };
     const node = h('div', { class: 'nv-ctl' }, list, drawer);
@@ -2218,7 +2604,8 @@
     mic.click();
   }
 
-  const RENDER = { meeting: (c) => meetingCard(c.id), meetings: (c) => meetingsCard(c.ids || []), items: (c) => itemsCard(c.ids || []), mail: (c) => mailCard(c.ids || []) };
+  const RENDER = { meeting: (c) => meetingCard(c.id), meetings: (c) => meetingsCard(c.ids || []), items: (c) => itemsCard(c.ids || []), mail: (c) => mailCard(c.ids || []),
+    schedule_form: (c, text) => bookingCard(c, text) };
 
   // 답변 안의 ```navitech 블록 → 카드 (Open WebUI가 메시지를 다시 그리면 다시 붙인다)
   function mountCards() {
@@ -2231,7 +2618,7 @@
       const render = RENDER[card.card];
       if (!render) continue;
       block.classList.add('nv-hidden-block');
-      const node = render(card);
+      const node = render(card, text);
       node.dataset.nvCard = text;
       block.after(node);
     }

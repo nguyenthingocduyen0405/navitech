@@ -165,6 +165,9 @@ def cited_documents(event: dict) -> list[str]:
     return [f"{system}/{i}" for i in ids if i]
 
 
+FORM_KEYS = ("draft", "previous", "suggestions", "assumed", "missing", "problems", "conflicts", "unclear", "today", "complete")
+
+
 def cards_from(event: dict) -> list[dict]:
     """그룹 회의 Tool 결과가 가리키는 회의록 · 일정 · 할 일 · 메일 (K전자에서 relay된 결과는 이 화면의 저장소가 아님)."""
     result = event.get("result")
@@ -182,6 +185,8 @@ def cards_from(event: dict) -> list[dict]:
     if tool == "save_meeting_minutes" and result.get("saved") and result.get("meeting_id"):
         return [{"card": "meeting", "id": result["meeting_id"]}, *mail]
     if tool == "run_meeting_schedule" and result.get("ok") is not False:
+        if result.get("action") == "draft" and isinstance(result.get("draft"), dict):  # 예약 전 점검 → 예약 양식 (내용을 카드에 그대로)
+            return [{"card": "schedule_form", **{k: result.get(k) for k in FORM_KEYS}}]
         if isinstance(result.get("meeting"), dict) and result["meeting"].get("id"):
             return [{"card": "meeting", "id": result["meeting"]["id"]}, *mail]
         found = ids(result.get("meetings"), MAX_CARD_MEETINGS)
@@ -208,9 +213,11 @@ def cards_from(event: dict) -> list[dict]:
 
 def card_blocks(cards: list[dict]) -> str:
     """답변 끝에 붙는 카드 블록 (같은 카드는 한 번만, 같은 종류의 목록은 뒤의 것으로 — 다만 할 일을 하나씩 바꾸거나 메일을
-    보낸 결과(add)가 이어지면 합친다). 회의 하나를 예약 · 저장한 답변에는 그 전에 겹치는 일정을 확인하려고 조회한 회의 목록을
-    붙이지 않는다."""
-    if any(c["card"] == "meeting" for c in cards):
+    보낸 결과(add)가 이어지면 합친다). 회의 하나를 예약 · 저장한 답변에는 그 전에 겹치는 일정을 확인하려고 조회한 회의 목록이나
+    예약 전 점검(예약 양식)을 붙이지 않는다."""
+    if any(c["card"] == "meeting" for c in cards):  # 예약 · 저장까지 했으면 그 전의 조회 · 예약 양식은 붙이지 않는다
+        cards = [c for c in cards if c["card"] not in ("meetings", "schedule_form")]
+    elif any(c["card"] == "schedule_form" for c in cards):  # 예약 양식이면 날짜를 계산하려고 본 일정 목록은 빼고 양식만
         cards = [c for c in cards if c["card"] != "meetings"]
     latest: dict[str, dict] = {}
     for card in cards:
