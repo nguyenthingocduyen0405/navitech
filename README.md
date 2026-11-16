@@ -67,6 +67,22 @@ role별 소유로 미리 만들고, 테이블은 backend가 처음 쓸 때 만�
   `.env`의 `NEWS_EMBED_MODEL` · `NEWS_EMBED_URL`을 채우세요. 모델에 닿지 못하면 키워드 검색으로 스스로 되돌아갑니다.
 - pgvector 확장은 `agents` DB에 미리 만들어 둡니다 (확장 생성은 superuser만 가능). Postgres 이미지는 `pgvector/pgvector:pg17`입니다.
 
+> **이미 돌고 있던 서버라면 한 번 직접 실행해야 합니다.**
+> `infra/postgres/init.sh`는 `/docker-entrypoint-initdb.d/`에 마운트되어 **`pgdata` 볼륨이 비어 있을 때만** 실행됩니다.
+> 기존 배포에는 다시 돌지 않으므로, 뉴스 요청이 `뉴스 저장소에 pgvector 확장이 없습니다` 또는 권한 오류로 실패합니다
+> (`agents_k` · `agents_group`에는 DB에 CREATE 권한이 없고, 확장 생성은 superuser만 할 수 있습니다).
+>
+> ```bash
+> docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U postgres -d agents <<'SQL'
+> CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public;
+> CREATE SCHEMA IF NOT EXISTS kelec_news AUTHORIZATION agents_k;
+> CREATE SCHEMA IF NOT EXISTS grp_news AUTHORIZATION agents_group;
+> SQL
+> docker compose up -d agents-k agents-group
+> ```
+>
+> 테이블은 backend가 처음 쓸 때 스스로 만듭니다 (`news/sql/NNN_*.sql`).
+
 ## 디렉터리 구성
 
 | 경로 | 내용 | 담당 |
