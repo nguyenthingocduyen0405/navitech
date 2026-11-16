@@ -50,6 +50,23 @@ Agent 전환은 Open WebUI 왼쪽 메뉴의 고정 목록(`DEFAULT_PINNED_MODELS
 - 메일 발송 계정 (예: Gmail 앱 비밀번호): `.env`에 `SMTP_HOST=smtp.gmail.com`, `SMTP_PORT=587`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM` → `docker compose up -d agents-k agents-group`.
 - 회의 기록을 예시 회의 없이 빈 채로 시작하려면 `.env`에 `MEETINGS_SEED_MEETINGS=0` (저장소가 비었을 때 `data/meetings.json`의 예시 회의를 넣지 않음, 임직원 연락처는 넣음).
 
+### 뉴스 Agent의 저장소와 파이프라인
+
+뉴스 에이전트는 언론사 RSS · 뉴스 sitemap에서 기사를 모아 같은 사안끼리 묶고, 기사별 논조 · 리스크를 분석해 저장합니다.
+회의 저장소와 **같은 DB `agents`**를 쓰되 schema를 따로 둡니다 (K `kelec_news`, Group `grp_news`) — `infra/postgres/init.sh`가
+role별 소유로 미리 만들고, 테이블은 backend가 처음 쓸 때 만듭니다. 각 system은 처음 쓸 때 `data/news.json`의 기사를 초기 데이터로 등록합니다.
+
+| 설정 | 기본값 | 뜻 |
+|---|---|---|
+| `NEWS_DATABASE_URL` | (비움) | 비우면 `MEETINGS_DATABASE_URL`과 같은 DB를 쓴다 |
+| `NEWS_LOOKBACK_DAYS` | 120 | 뉴스 조회 기본 · 최대 기간(일) |
+| `NEWS_EMBED_MODEL` | `none` | `none`이면 키워드 검색만. `embeddinggemma`로 바꾸면 의미 검색을 함께 쓴다(하이브리드) |
+| `NEWS_EMBED_URL` | (비움) | 임베딩을 서빙하는 Ollama 주소 (예: `http://ollama:11434`) |
+
+- 의미 검색은 **이 배포에 Ollama가 없어 기본으로 꺼져 있습니다**. 켜려면 Ollama를 띄우고 `ollama pull embeddinggemma` 뒤에
+  `.env`의 `NEWS_EMBED_MODEL` · `NEWS_EMBED_URL`을 채우세요. 모델에 닿지 못하면 키워드 검색으로 스스로 되돌아갑니다.
+- pgvector 확장은 `agents` DB에 미리 만들어 둡니다 (확장 생성은 superuser만 가능). Postgres 이미지는 `pgvector/pgvector:pg17`입니다.
+
 ## 디렉터리 구성
 
 | 경로 | 내용 | 담당 |

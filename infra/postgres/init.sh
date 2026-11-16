@@ -30,14 +30,18 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname app -c "CREATE EXTE
 # speech-service voiceprint 저장소 (화자 임베딩)
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname speech -c "CREATE EXTENSION IF NOT EXISTS vector;"
 
-# agent-backend 회의 저장소: Agent System마다 schema와 role을 따로 둔다 (Group은 K전자 회의 기록을 읽을 수 없음).
-# 테이블은 agent-backend가 처음 쓸 때 만든다 (backend/app/library/workflows/meeting_schema.sql).
+# agent-backend 회의 · 뉴스 저장소: Agent System마다 schema와 role을 따로 둔다 (Group은 K전자 회의 기록을 읽을 수 없음).
+# 테이블은 agent-backend가 처음 쓸 때 만든다 (meeting_schema.sql, news/sql/NNN_*.sql).
+# 확장(pg_trgm · vector)은 superuser만 만들 수 있어 여기서 미리 만든다. vector는 뉴스 의미 검색용이다.
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname agents <<-EOSQL
     REVOKE ALL ON DATABASE agents FROM PUBLIC;
     GRANT CONNECT ON DATABASE agents TO agents_k, agents_group;
     CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA public;
+    CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public;
     CREATE SCHEMA kelec AUTHORIZATION agents_k;
     CREATE SCHEMA grp AUTHORIZATION agents_group;
+    CREATE SCHEMA kelec_news AUTHORIZATION agents_k;
+    CREATE SCHEMA grp_news AUTHORIZATION agents_group;
     ALTER ROLE agents_k IN DATABASE agents SET search_path = kelec, public;
     ALTER ROLE agents_group IN DATABASE agents SET search_path = grp, public;
 EOSQL

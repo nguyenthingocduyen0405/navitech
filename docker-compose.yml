@@ -50,6 +50,18 @@ x-meetings-env: &meetings-env
   SMTP_PASSWORD: ${SMTP_PASSWORD:-}
   SMTP_FROM: ${SMTP_FROM:-}
 
+# 두 Agent System의 뉴스 기능 공통 설정 (agent-backend/backend/app/library/workflows/news/)
+x-news-env: &news-env
+  # 뉴스 저장소. 비우면 MEETINGS_DATABASE_URL과 같은 DB를 쓰고 schema만 따로 둔다 (kelec_news / grp_news)
+  NEWS_DATABASE_URL: ${NEWS_DATABASE_URL:-}
+  # 뉴스 조회 기본 · 최대 기간(일)
+  NEWS_LOOKBACK_DAYS: ${NEWS_LOOKBACK_DAYS:-120}
+  # 의미 검색 임베딩 모델. none이면 키워드 검색만 한다 (기본: 이 배포에는 Ollama가 없음).
+  # 켜려면 Ollama를 띄우고 `ollama pull embeddinggemma` 뒤에 .env에
+  # NEWS_EMBED_MODEL=embeddinggemma, NEWS_EMBED_URL=http://<ollama 호스트>:11434
+  NEWS_EMBED_MODEL: ${NEWS_EMBED_MODEL:-none}
+  NEWS_EMBED_URL: ${NEWS_EMBED_URL:-}
+
 services:
   postgres:
     image: pgvector/pgvector:pg17
@@ -123,7 +135,7 @@ services:
     <<: *agent-backend
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
     environment:
-      <<: [*llm-env, *meetings-env]
+      <<: [*llm-env, *meetings-env, *news-env]
       # 회의 저장소: DB agents의 schema kelec (role agents_k는 Group schema에 접근 불가). principal 없는 요청은 열람 불가(0)
       MEETINGS_DATABASE_URL: postgresql://agents_k:${AGENTS_K_DB_PASSWORD}@postgres:5432/agents
       MEETINGS_ANONYMOUS_CLEARANCE: "0"
@@ -136,7 +148,7 @@ services:
     <<: *agent-backend
     command: ["uvicorn", "app.systems.group.app:app", "--host", "0.0.0.0", "--port", "8001"]
     environment:
-      <<: [*llm-env, *meetings-env]
+      <<: [*llm-env, *meetings-env, *news-env]
       K_ELECTRONICS_A2A_URL: http://agents-k:8000/api/a2a/run
       MEETINGS_DATABASE_URL: postgresql://agents_group:${AGENTS_GROUP_DB_PASSWORD}@postgres:5432/agents
       MEETINGS_ANONYMOUS_CLEARANCE: "0"
