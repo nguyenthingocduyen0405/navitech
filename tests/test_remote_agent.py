@@ -173,7 +173,7 @@ def test_items_changed_one_by_one_show_together(audit):
         group({"type": "tool_end", "agent": "meeting", "tool": "run_action_item_tracking",
                "result": {"items": [{"id": "MTG-2026-10-28-01-A1"}, {"id": "MTG-2026-10-28-01-A2"}, {"id": "MTG-2026-10-28-01-A3"}]}}),
         nudged("MTG-2026-10-28-01-A1", "MAIL-209"), nudged("MTG-2026-10-28-01-A2", "MAIL-210"),
-        group({"type": "agent_token", "agent": "meeting", "text": "독촉 메일 2건을 보냈습니다."}), group({"type": "done"}),
+        group({"type": "agent_token", "agent": "meeting", "text": "리마인더 메일 2건을 보냈습니다."}), group({"type": "done"}),
     )
     with make_client(FakeBackend(body), audit) as client:
         content = chat(client, "meeting-agent", "ceo@example.com").json()["choices"][0]["message"]["content"]
@@ -293,6 +293,20 @@ def test_build_request_keeps_recent_history_without_reasoning_blocks():
         "[이전 대화]\n사용자: 뉴로엣지 인수 검토해줘\nAI: 본실사 진입 권고\n\n[현재 요청]\nCFO 관점에서 다시"
     )
     assert build_request(messages[-1:]) == "CFO 관점에서 다시"
+
+
+def test_build_request_keeps_the_end_of_a_long_answer():
+    # A report puts its conclusion first and its final recommendation and conditions last: both stay.
+    report = "결론: 조건부 진행. " + "평가 근거 " * 300 + "최종 권고: 조건부 진행 (가격 2.3조 원 이하)"
+    request = build_request([
+        {"role": "user", "content": "뉴로엣지 인수 종합 평가해 줘"},
+        {"role": "assistant", "content": report},
+        {"role": "user", "content": "2.2조면?"},
+    ])
+    answer = request.split("\nAI: ", 1)[1].split("\n\n[현재 요청]")[0]
+    assert answer.startswith("결론: 조건부 진행.") and answer.endswith("최종 권고: 조건부 진행 (가격 2.3조 원 이하)")
+    assert "(중략)" in answer and len(answer) < 1600
+    assert request.endswith("[현재 요청]\n2.2조면?")
 
 
 def test_principal_is_signed_when_a_key_is_set():

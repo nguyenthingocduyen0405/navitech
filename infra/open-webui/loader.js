@@ -1971,7 +1971,7 @@
         [['녹음', rec ? mmss(rec.seconds) : '—'], ['결정', String(decidedOf(m).length)], ['분공', `${done}/${items.length}`],
           ['메일', mails.length ? `${mails.filter((x) => x.status === 'sent').length}/${mails.length}` : '—']]),
       tabs.bar, tabs.body,
-      askBox(m, ['결정과 근거를 다시 정리해 줘', ...(items.some((i) => i.status !== 'done' && i.status !== 'cancelled') ? ['밀린 일 담당자에게 독촉해 줘'] : [])]),
+      askBox(m, ['결정과 근거를 다시 정리해 줘', ...(items.some((i) => i.status !== 'done' && i.status !== 'cancelled') ? ['밀린 일 담당자에게 리마인더 메일 보내 줘'] : [])]),
       foot,
     ];
   }
@@ -2112,7 +2112,7 @@
     const [due, tone] = done ? ['완료', ''] : dueText(it.due);
     const set = (status) => act(async () => { await api('items', { item_id: it.id, status }); await reload(); });
     const status = h('span', { class: `nv-st ${ITEM_TONE[it.status] || ''}` }, ITEM[it.status] || it.status);
-    // 마지막 기록: 담당자가 메일 버튼으로 알린 상황 · 메모 (또는 독촉 · 기한 변경)
+    // 마지막 기록: 담당자가 메일 버튼으로 알린 상황 · 메모 (또는 리마인더 메일 · 기한 변경)
     const last = it.last && (() => {
       const mail = it.last.note.startsWith('메일로 보고');
       const rest = mail ? it.last.note.replace(/^메일로 보고:?\s*/, '') : it.last.note;
@@ -2283,7 +2283,7 @@
           drawer.replaceChildren(...(live ? liveDrawer(s, drawer)
             : [drawerHead(s.title, `${dateLabel(s.starts_at)} ${slot(s)}${s.location ? ` · ${s.location}` : ''} · ${s.id}`, h('span', { class: 'nv-st plan' }, '예정')),
               h('div', { class: 'nv-dw-body' }, scheduledView(s, () => {}).slice(1)),
-              askBox(s, ['이 회의 준비 자료 정리해 줘', '지난 회의에서 밀린 일 담당자에게 독촉해 줘'])]).filter(Boolean));
+              askBox(s, ['이 회의 준비 자료 정리해 줘', '지난 회의에서 밀린 일 담당자에게 리마인더 메일 보내 줘'])]).filter(Boolean));
         } else {
           drawer.replaceChildren(...doneDrawer(d).filter(Boolean));
         }
