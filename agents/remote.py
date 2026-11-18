@@ -65,12 +65,7 @@ SYSTEM_NAMES = {"group": "그룹", "k_electronics": "K전자"}
 # 위임 · A2A 결과를 "생각" 블록에 보여 줄 때의 최대 길이 (전체 답변은 Super Agent가 종합)
 MAX_STATUS_CHARS = 600
 CORRECTION_TOOL = "correct_transcript"  # backend가 회의 Agent보다 먼저 녹음 변환본을 교정할 때도 이 Tool 이벤트로 알림
-# backend는 요청 문자열 하나만 받으므로, 이전 대화는 최근 몇 개만 요청 앞에 붙입니다.
-# 긴 답변은 앞부분과 끝부분을 남깁니다: 보고서는 결론을 앞에, 최종 권고 · 조건 · 다음 할 일을 끝에 쓰기 때문입니다
-# (예: 경영자문 Agent의 종합 평가는 1,700자 남짓이고 최종 권고가 맨 끝에 있음).
-MAX_HISTORY_MESSAGES = 6
-MAX_HISTORY_CHARS = 1500
-HISTORY_TAIL_CHARS = 500  # MAX_HISTORY_CHARS 가운데 끝부분에 쓰는 몫
+# backend는 요청 문자열 하나만 받으므로, Open WebUI가 보낸 이전 대화를 개수 · 길이로 자르지 않고 요청 앞에 붙입니다.
 
 # 위임 · A2A 한 번이 수 분 걸릴 수 있지만, 그동안에도 이벤트가 계속 흘러옵니다.
 BACKEND_TIMEOUT = httpx.Timeout(connect=5.0, read=600.0, write=10.0, pool=5.0)
@@ -91,14 +86,6 @@ def _clip(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[:limit].rstrip() + " …"
 
 
-def _clip_middle(text: str, limit: int, tail: int) -> str:
-    """앞부분과 끝부분을 남기고 가운데를 줄입니다 (전체 길이는 limit 안팎)."""
-    text = str(text).strip()
-    if len(text) <= limit:
-        return text
-    return text[: limit - tail].rstrip() + " … (중략) … " + text[-tail:].lstrip()
-
-
 def _text(content) -> str:
     if isinstance(content, str):
         return content
@@ -108,18 +95,18 @@ def _text(content) -> str:
 
 
 def build_request(messages: list[dict]) -> str:
-    """Open WebUI의 대화 기록 → backend 요청 문자열 (마지막 사용자 메시지 + 최근 대화 맥락)."""
+    """Open WebUI의 대화 기록 → backend 요청 문자열 (마지막 사용자 메시지 + 그 앞의 대화 전체)."""
     current = last_user_text(messages)
     turns = [m for m in messages if m.get("role") in ("user", "assistant")]
     if turns and turns[-1].get("role") == "user":
         turns = turns[:-1]
     history = []
-    for m in turns[-MAX_HISTORY_MESSAGES:]:
+    for m in turns:
         # Open WebUI가 답변에 붙여 둔 "생각" 블록과 카드 블록은 맥락에서 뺍니다.
         text = _CARDS.sub("", _DETAILS.sub("", _text(m.get("content")))).strip()
         if text:
             speaker = "사용자" if m["role"] == "user" else "AI"
-            history.append(f"{speaker}: {_clip_middle(text, MAX_HISTORY_CHARS, HISTORY_TAIL_CHARS)}")
+            history.append(f"{speaker}: {text}")
     if not history:
         return current
     return "[이전 대화]\n" + "\n".join(history) + "\n\n[현재 요청]\n" + current

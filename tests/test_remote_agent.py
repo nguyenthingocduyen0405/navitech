@@ -295,18 +295,19 @@ def test_build_request_keeps_recent_history_without_reasoning_blocks():
     assert build_request(messages[-1:]) == "CFO 관점에서 다시"
 
 
-def test_build_request_keeps_the_end_of_a_long_answer():
-    # A report puts its conclusion first and its final recommendation and conditions last: both stay.
+def test_build_request_passes_the_whole_conversation_uncut():
+    # Earlier turns go to the backend as Open WebUI sent them: no cut by count or length.
     report = "결론: 조건부 진행. " + "평가 근거 " * 300 + "최종 권고: 조건부 진행 (가격 2.3조 원 이하)"
-    request = build_request([
+    earlier = [{"role": "user" if i % 2 == 0 else "assistant", "content": f"메시지 {i}"} for i in range(10)]
+    request = build_request(earlier + [
         {"role": "user", "content": "뉴로엣지 인수 종합 평가해 줘"},
         {"role": "assistant", "content": report},
         {"role": "user", "content": "2.2조면?"},
     ])
-    answer = request.split("\nAI: ", 1)[1].split("\n\n[현재 요청]")[0]
-    assert answer.startswith("결론: 조건부 진행.") and answer.endswith("최종 권고: 조건부 진행 (가격 2.3조 원 이하)")
-    assert "(중략)" in answer and len(answer) < 1600
-    assert request.endswith("[현재 요청]\n2.2조면?")
+    assert all(f"메시지 {i}" in request for i in range(10))  # more than the old six-message window
+    answer = request.split("\nAI: " + "결론", 1)[1].split("\n\n[현재 요청]")[0]
+    assert "결론" + answer == report  # the long answer whole, not shortened
+    assert request.startswith("[이전 대화]\n사용자: 메시지 0") and request.endswith("[현재 요청]\n2.2조면?")
 
 
 def test_principal_is_signed_when_a_key_is_set():
