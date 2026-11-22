@@ -588,6 +588,8 @@
   .nv-warn{color:#c2410c}.nv-danger{color:#dc2626}
   .nv-loading{padding:14px 16px;color:var(--nv-muted);font-size:13px}
   .nv-err{color:#dc2626;font-size:12px;margin-top:4px}
+  .nv-report{border-left:4px solid var(--nv-brand)}
+  .nv-report .nv-err{flex-basis:100%;margin:0}
   .nv-assign{display:grid;grid-template-columns:1fr 150px auto;gap:6px;margin-top:6px}
   .nv-assign[hidden]{display:none}
   .nv-assign .nv-input{margin:0}
@@ -2604,8 +2606,67 @@
     mic.click();
   }
 
+  // 투자심의 보고서 카드: 경영자문 Agent가 판단을 저장하고 돌려준 보고서 참조(gateway가 ```navitech 블록으로 붙임).
+  // 파일은 '보고서 열기' · 'PDF 내려받기'를 누를 때 /meetings/reports에서 받는다 (로그인한 사용자의 권한으로 backend가 그때 만듦).
+  const RECOMMENDATION = { PROCEED: ['진행', 'final'], CONDITIONAL_PROCEED: ['조건부 진행', 'draft'], DO_NOT_PROCEED: ['보류', 'danger'] };
+  const EVALUATION = { initial: '최초 평가', reevaluation: '재평가', what_if: 'What-if 평가' };
+  const ADVISOR = { group: '그룹 경영자문', k_electronics: 'K전자 경영자문' };
+
+  async function reportPdf(card) {
+    const res = await fetch('/meetings/reports', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
+      body: JSON.stringify({ system: card.system, id: card.id }),
+    });
+    if (!res.ok || !(res.headers.get('content-type') || '').startsWith('application/pdf')) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || `보고서를 받지 못했습니다 (HTTP ${res.status})`);
+    }
+    const named = (res.headers.get('content-disposition') || '').match(/filename\*=UTF-8''([^;]+)/);
+    return { blob: await res.blob(), name: named ? decodeURIComponent(named[1]) : (card.filename || `${card.id}.pdf`) };
+  }
+
+  function reportCard(c) {
+    const [label, tone] = RECOMMENDATION[c.recommendation] || [c.recommendation_label || '권고', ''];
+    const err = h('div', { class: 'nv-err', hidden: true });
+    async function run(button, open) {
+      button.disabled = true;
+      err.hidden = true;
+      const tab = open ? window.open('', '_blank') : null; // 팝업 차단을 피하려고 누른 순간 창을 열고, 받은 뒤 PDF를 띄운다
+      try {
+        const { blob, name } = await reportPdf(c);
+        const url = URL.createObjectURL(blob);
+        if (tab) {
+          tab.location.href = url;
+        } else {
+          const a = h('a', { href: url, download: name });
+          document.body.append(a);
+          a.click();
+          a.remove();
+        }
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+      } catch (e) {
+        if (tab) tab.close();
+        err.textContent = e.message;
+        err.hidden = false;
+      } finally {
+        button.disabled = false;
+      }
+    }
+    return h('div', { class: 'nv-card nv-report' },
+      h('div', { class: 'nv-head' },
+        h('div', { class: 'nv-grow' },
+          h('div', { class: 'nv-title' }, c.title || '투자심의 보고서'),
+          h('div', { class: 'nv-meta' }, [ADVISOR[c.system] || '경영자문', EVALUATION[c.evaluation_type], `문서번호 ${c.id}`].filter(Boolean).join(' · '))),
+        h('span', { class: `nv-chip ${tone}` }, label)),
+      h('div', { class: 'nv-actions' },
+        h('button', { class: 'nv-btn primary', type: 'button', onclick: (e) => run(e.currentTarget, true) }, '보고서 열기'),
+        h('button', { class: 'nv-btn', type: 'button', onclick: (e) => run(e.currentTarget, false) }, 'PDF 내려받기'),
+        err));
+  }
+
   const RENDER = { meeting: (c) => meetingCard(c.id), meetings: (c) => meetingsCard(c.ids || []), items: (c) => itemsCard(c.ids || []), mail: (c) => mailCard(c.ids || []),
-    schedule_form: (c, text) => bookingCard(c, text) };
+    schedule_form: (c, text) => bookingCard(c, text), report: (c) => reportCard(c) };
 
   // 답변 안의 ```navitech 블록 → 카드 (Open WebUI가 메시지를 다시 그리면 다시 붙인다)
   function mountCards() {

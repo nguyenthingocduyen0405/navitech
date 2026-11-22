@@ -8,6 +8,7 @@ backend는 요청 하나를 받아 실행 lifecycle 이벤트를 NDJSON으로 �
     위임 · A2A · Workflow Tool 진행 상황   → status    ("생각" 블록)
     Workflow 결과의 회의 · 기사 id         → citation  (감사 로그)
     회의 Tool 결과(회의록 · 일정 · 할 일 · 메일) → 답변 끝의 ```navitech 블록 (카드)
+    경영자문의 투자심의 보고서 참조(artifacts) → 같은 블록의 보고서 카드 (K전자 것은 Group의 a2a_end에 실려 옴)
     error                                  → text      (어느 Agent가 실패했는지 안내)
 
 카드 블록에는 무엇을 보여 줄지(회의 id · 할 일 id · 메일 id)만 들어갑니다. Open WebUI에 끼워 넣은 스크립트
@@ -81,6 +82,9 @@ CARD_FENCE = "navitech"
 _CARDS = re.compile(r"```navitech\n.*?```", re.DOTALL)
 MAX_CARD_ITEMS = 12  # 카드 하나에 담는 할 일 · 메일 수
 MAX_CARD_MEETINGS = 4
+# 경영자문의 판단 기록 · 조회 Tool: 결과의 artifacts가 투자심의 보고서 참조 (파일은 열 때 /meetings/reports로 받음)
+ADVISORY_REPORT_TOOLS = ("record_advisory_opinion", "add_advisory_details", "lookup_advisory_reviews")
+REPORT_CARD_KEYS = ("system", "id", "title", "filename", "recommendation", "recommendation_label", "evaluation_type")
 
 
 def _clip(text: str, limit: int) -> str:
@@ -168,12 +172,26 @@ def cited_documents(event: dict) -> list[str]:
 FORM_KEYS = ("draft", "previous", "suggestions", "assumed", "missing", "problems", "conflicts", "unclear", "today", "complete")
 
 
+def report_cards(artifacts, system: str | None = None) -> list[dict]:
+    """backend가 돌려준 보고서 참조 → 보고서 카드 (무엇을 열지만 담고, 파일은 카드가 열 때 /meetings/reports로 받는다)."""
+    out = []
+    for ref in artifacts or []:
+        if isinstance(ref, dict) and ref.get("kind") == "report" and ref.get("id"):
+            card = {"card": "report", **{k: ref.get(k) for k in REPORT_CARD_KEYS if ref.get(k) is not None}}
+            card.setdefault("system", system or "group")
+            out.append(card)
+    return out
+
+
 def cards_from(event: dict) -> list[dict]:
-    """그룹 회의 Tool 결과가 가리키는 회의록 · 일정 · 할 일 · 메일 (K전자에서 relay된 결과는 이 화면의 저장소가 아님)."""
+    """그룹 회의 Tool 결과가 가리키는 회의록 · 일정 · 할 일 · 메일 (K전자에서 relay된 결과는 이 화면의 저장소가 아님),
+    그리고 그룹 경영자문이 돌려준 보고서 참조."""
     result = event.get("result")
     if event.get("relayed") or event.get("system") not in (None, "group") or not isinstance(result, dict):
         return []
     tool = event.get("tool")
+    if tool in ADVISORY_REPORT_TOOLS:
+        return report_cards(result.get("artifacts"), "group")
 
     def ids(rows, limit=MAX_CARD_ITEMS):
         return [r["id"] for r in rows or [] if isinstance(r, dict) and r.get("id")][:limit]
@@ -326,6 +344,8 @@ class RemoteAgent:
                 status = f"{agent_label(event.get('from'), system)} → {agent_label(event.get('to'), None)} A2A 요청: {event.get('request', '')}"
             elif kind == "a2a_end":
                 status = f"{agent_label(event.get('to'), None)} A2A 응답: {_clip(event.get('response', ''), MAX_STATUS_CHARS)}"
+                if not event.get("relayed"):  # K전자 경영자문의 보고서 참조: Group의 A2A Tool이 골라 a2a_end에 실어 보냄
+                    cards += report_cards(event.get("artifacts"), "k_electronics")
             elif kind == "tool_start" and event.get("tool") == CORRECTION_TOOL and (event.get("args") or {}).get("lines"):
                 status = f"{agent_label(event.get('agent'), system)}: 녹음 변환본 교정 중 ({event['args']['lines']}줄)"
             elif kind == "tool_start":

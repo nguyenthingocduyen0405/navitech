@@ -62,6 +62,17 @@ x-news-env: &news-env
   NEWS_EMBED_MODEL: ${NEWS_EMBED_MODEL:-none}
   NEWS_EMBED_URL: ${NEWS_EMBED_URL:-}
 
+# 두 Agent System의 대화 기억 · Enterprise KG 설정 (agent-backend/backend/app/library/workflows/{memory,kg}/)
+x-memory-kg-env: &memory-kg-env
+  # Super Agent 대화 기억의 의미 검색 임베딩: openai(기본, MEMORY_EMBED_API_KEY 필요) | ollama(MEMORY_EMBED_URL) | none. 키가 없으면 낱말 검색
+  MEMORY_EMBED_PROVIDER: ${MEMORY_EMBED_PROVIDER:-}
+  MEMORY_EMBED_MODEL: ${MEMORY_EMBED_MODEL:-}
+  MEMORY_EMBED_API_KEY: ${MEMORY_EMBED_API_KEY:-}
+  MEMORY_EMBED_URL: ${MEMORY_EMBED_URL:-}
+  # 회의 · 뉴스 → 지식 그래프 동기화 간격(초)과 동기화 한 번의 관계 추출 LLM 호출 수 (MEETINGS_BACKGROUND_JOBS=1일 때)
+  KG_SYNC_INTERVAL: ${KG_SYNC_INTERVAL:-600}
+  KG_LLM_BUDGET: ${KG_LLM_BUDGET:-30}
+
 services:
   postgres:
     image: pgvector/pgvector:pg17
@@ -135,7 +146,7 @@ services:
     <<: *agent-backend
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
     environment:
-      <<: [*llm-env, *meetings-env, *news-env]
+      <<: [*llm-env, *meetings-env, *news-env, *memory-kg-env]
       # 회의 저장소: DB agents의 schema kelec (role agents_k는 Group schema에 접근 불가). principal 없는 요청은 열람 불가(0)
       MEETINGS_DATABASE_URL: postgresql://agents_k:${AGENTS_K_DB_PASSWORD}@postgres:5432/agents
       MEETINGS_ANONYMOUS_CLEARANCE: "0"
@@ -148,7 +159,7 @@ services:
     <<: *agent-backend
     command: ["uvicorn", "app.systems.group.app:app", "--host", "0.0.0.0", "--port", "8001"]
     environment:
-      <<: [*llm-env, *meetings-env, *news-env]
+      <<: [*llm-env, *meetings-env, *news-env, *memory-kg-env]
       K_ELECTRONICS_A2A_URL: http://agents-k:8000/api/a2a/run
       MEETINGS_DATABASE_URL: postgresql://agents_group:${AGENTS_GROUP_DB_PASSWORD}@postgres:5432/agents
       MEETINGS_ANONYMOUS_CLEARANCE: "0"
