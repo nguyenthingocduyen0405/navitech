@@ -227,7 +227,7 @@ def cards_from(event: dict) -> list[dict]:
     def ids(rows, limit=MAX_CARD_ITEMS):
         return [r["id"] for r in rows or [] if isinstance(r, dict) and r.get("id")][:limit]
 
-    # 확정 · 예약 · 담당 지정 · 독촉으로 나간 메일 (받는 사람 · 보냄 여부). 한 답변에서 여러 번 한 일은 모아서 보인다 (add)
+    # 확정 · 예약 · 담당 지정 · 리마인더로 나간 메일 (받는 사람 · 보냄 여부). 한 답변에서 여러 번 한 일은 모아서 보인다 (add)
     sent = ids(result.get("mail_queued"))
     mail = [{"card": "mail", "ids": sent, "add": True}] if sent else []
 
