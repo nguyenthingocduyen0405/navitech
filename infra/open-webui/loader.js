@@ -1973,7 +1973,7 @@
         [['녹음', rec ? mmss(rec.seconds) : '—'], ['결정', String(decidedOf(m).length)], ['분공', `${done}/${items.length}`],
           ['메일', mails.length ? `${mails.filter((x) => x.status === 'sent').length}/${mails.length}` : '—']]),
       tabs.bar, tabs.body,
-      askBox(m, ['결정과 근거를 다시 정리해 줘', ...(items.some((i) => i.status !== 'done' && i.status !== 'cancelled') ? ['밀린 일 담당자에게 독촉해 줘'] : [])]),
+      askBox(m, ['결정과 근거를 다시 정리해 줘', ...(items.some((i) => i.status !== 'done' && i.status !== 'cancelled') ? ['밀린 일 담당자에게 리마인더 보내 줘'] : [])]),
       foot,
     ];
   }
@@ -2285,7 +2285,7 @@
           drawer.replaceChildren(...(live ? liveDrawer(s, drawer)
             : [drawerHead(s.title, `${dateLabel(s.starts_at)} ${slot(s)}${s.location ? ` · ${s.location}` : ''} · ${s.id}`, h('span', { class: 'nv-st plan' }, '예정')),
               h('div', { class: 'nv-dw-body' }, scheduledView(s, () => {}).slice(1)),
-              askBox(s, ['이 회의 준비 자료 정리해 줘', '지난 회의에서 밀린 일 담당자에게 독촉해 줘'])]).filter(Boolean));
+              askBox(s, ['이 회의 준비 자료 정리해 줘', '지난 회의에서 밀린 일 담당자에게 리마인더 보내 줘'])]).filter(Boolean));
         } else {
           drawer.replaceChildren(...doneDrawer(d).filter(Boolean));
         }
@@ -2627,6 +2627,7 @@
   }
 
   function reportCard(c) {
+    cardStyle(); // 다른 카드가 없는 채팅에서도 카드 CSS(코드 블록 숨김 포함)를 넣는다
     const [label, tone] = RECOMMENDATION[c.recommendation] || [c.recommendation_label || '권고', ''];
     const err = h('div', { class: 'nv-err', hidden: true });
     async function run(button, open) {
