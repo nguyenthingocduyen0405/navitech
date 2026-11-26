@@ -23,6 +23,7 @@ import tempfile
 import time
 import uuid
 from collections.abc import AsyncIterator
+from contextlib import aclosing
 from typing import Any
 
 from claude_agent_sdk import (
@@ -143,8 +144,18 @@ def resolve_model(requested: str | None) -> str:
 
 
 async def run_claude(body: dict) -> AsyncIterator[tuple[str, Any]]:
-    """Yields ("text", str) deltas, then ("tool_calls", [...]) and ("done", finish_reason)."""
+    """Yields ("text", str) deltas, then ("usage", dict), ("tool_calls", [...]) and ("done", finish_reason)."""
     messages = body.get("messages") or []
+    # OpenAI max_tokens / max_completion_tokens → Claude Code's output cap (thinking counts toward it)
+    max_out = body.get("max_completion_tokens") or body.get("max_tokens")
+    env = {"ENABLE_TOOL_SEARCH": "false", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"}
+    if isinstance(max_out, int) and max_out > 0:
+        env["CLAUDE_CODE_MAX_OUTPUT_TOKENS"] = str(max_out)
+    # OpenAI reasoning_effort: low..max → that effort for this call; "none"/"minimal" → ask for no thinking
+    # (some models think anyway, e.g. Haiku 5.5 measured 2026-11-26, so effort low goes with it)
+    reasoning = str(body.get("reasoning_effort") or "").strip().lower()
+    thinking = {"type": "disabled"} if reasoning in ("none", "minimal") else None
+    effort = "low" if thinking else reasoning if reasoning in ("low", "medium", "high", "xhigh", "max") else EFFORT
     system, prompt = build_prompt(messages)
     tool_choice = body.get("tool_choice")
     tools = [] if tool_choice == "none" else build_tools(body.get("tools"))
@@ -165,35 +176,60 @@ async def run_claude(body: dict) -> AsyncIterator[tuple[str, Any]]:
         include_partial_messages=True,
         max_turns=1,
         cwd=WORKDIR,
-        effort=EFFORT,
-        env={"ENABLE_TOOL_SEARCH": "false", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"},
+        effort=effort,
+        thinking=thinking,
+        env=env,
         extra_args={"no-session-persistence": None},
     )
 
     calls: list[dict] = []
     seen: set[str] = set()
-    async for msg in query(prompt=prompt, options=options):
-        if isinstance(msg, StreamEvent):
-            ev = msg.event
-            if ev.get("type") == "content_block_delta" and ev.get("delta", {}).get("type") == "text_delta":
-                yield "text", ev["delta"]["text"]
-        elif isinstance(msg, AssistantMessage):
-            if msg.error:
-                raise BridgeError(*_error_status(msg.error))
-            for block in msg.content:
-                if isinstance(block, ToolUseBlock) and block.id not in seen:
-                    seen.add(block.id)
-                    calls.append({"id": block.id, "name": block.name.removeprefix(MCP_PREFIX), "input": block.input})
-        elif isinstance(msg, ResultMessage):
-            deferred = msg.deferred_tool_use
-            if deferred and deferred.id not in seen:
-                calls.append({"id": deferred.id, "name": deferred.name.removeprefix(MCP_PREFIX), "input": deferred.input})
-            if msg.is_error and not calls and msg.subtype != "error_max_turns":
-                raise BridgeError(502, f"Claude run failed: {msg.subtype} {msg.result or ''}".strip())
-            log.info(
-                "model=%s turns=%s duration_ms=%s tool_calls=%s usage=%s",
-                options.model, msg.num_turns, msg.duration_ms, [c["name"] for c in calls], msg.usage,
-            )
+    usage: dict | None = None
+    stream_usage: dict = {}  # usage of the API call in progress, from its stream events
+    truncated = False
+    async with aclosing(query(prompt=prompt, options=options)) as messages_in:
+        async for msg in messages_in:
+            if isinstance(msg, StreamEvent):
+                ev = msg.event
+                kind = ev.get("type")
+                if kind == "content_block_delta" and ev.get("delta", {}).get("type") == "text_delta":
+                    yield "text", ev["delta"]["text"]
+                elif kind == "message_start":
+                    stream_usage = dict((ev.get("message") or {}).get("usage") or {})
+                elif kind == "message_delta":
+                    stream_usage.update(ev.get("usage") or {})
+                    # Hitting max_tokens makes Claude Code send up to 3 "resume" calls (each re-reads the whole
+                    # prompt) and then fail anyway. Stop at the first cut instead: closing the generator ends the
+                    # CLI process, and the caller gets the text so far with finish_reason "length".
+                    if env.get("CLAUDE_CODE_MAX_OUTPUT_TOKENS") and ev.get("delta", {}).get("stop_reason") == "max_tokens":
+                        truncated = True
+                        usage = stream_usage
+                        log.info("model=%s stopped at max_tokens=%s usage=%s", options.model,
+                                 env["CLAUDE_CODE_MAX_OUTPUT_TOKENS"], usage)
+                        break
+            elif isinstance(msg, AssistantMessage):
+                if msg.error:
+                    raise BridgeError(*_error_status(msg.error))
+                for block in msg.content:
+                    if isinstance(block, ToolUseBlock) and block.id not in seen:
+                        seen.add(block.id)
+                        calls.append({"id": block.id, "name": block.name.removeprefix(MCP_PREFIX), "input": block.input})
+            elif isinstance(msg, ResultMessage):
+                deferred = msg.deferred_tool_use
+                if deferred and deferred.id not in seen:
+                    calls.append({"id": deferred.id, "name": deferred.name.removeprefix(MCP_PREFIX), "input": deferred.input})
+                if msg.is_error and not calls and msg.subtype != "error_max_turns":
+                    raise BridgeError(502, f"Claude run failed: {msg.subtype} {msg.result or ''}".strip())
+                log.info(
+                    "model=%s turns=%s duration_ms=%s tool_calls=%s usage=%s",
+                    options.model, msg.num_turns, msg.duration_ms, [c["name"] for c in calls], msg.usage,
+                )
+                usage = msg.usage
+    if usage:
+        yield "usage", usage
+    if truncated:
+        yield "done", "length"
+        return
     if calls:
         yield "tool_calls", calls
     yield "done", "tool_calls" if calls else "stop"
@@ -227,6 +263,16 @@ def _openai_tool_calls(calls: list[dict]) -> list[dict]:
          "function": {"name": c["name"], "arguments": json.dumps(c["input"], ensure_ascii=False)}}
         for i, c in enumerate(calls)
     ]
+
+
+def _openai_usage(u: dict | None) -> dict:
+    """Claude usage → OpenAI usage. prompt_tokens counts every input token (fresh + cache write + cache read)."""
+    u = u or {}
+    cached = u.get("cache_read_input_tokens") or 0
+    prompt = (u.get("input_tokens") or 0) + (u.get("cache_creation_input_tokens") or 0) + cached
+    completion = u.get("output_tokens") or 0
+    return {"prompt_tokens": prompt, "completion_tokens": completion, "total_tokens": prompt + completion,
+            "prompt_tokens_details": {"cached_tokens": cached}}
 
 
 @app.get("/health")
@@ -284,12 +330,14 @@ async def chat_completions(request: Request):
             item = await queue.get()
 
     if not body.get("stream"):
-        text, calls, finish = [], [], "stop"
+        text, calls, finish, usage = [], [], "stop", None
         async for kind, value in items():
             if kind == "error":
                 return _error(value)
             if kind == "text":
                 text.append(value)
+            elif kind == "usage":
+                usage = value
             elif kind == "tool_calls":
                 calls = value
             elif kind == "done":
@@ -300,8 +348,10 @@ async def chat_completions(request: Request):
         return {
             "id": cid, "object": "chat.completion", "created": created, "model": model,
             "choices": [{"index": 0, "message": message, "finish_reason": finish}],
-            "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            "usage": _openai_usage(usage),
         }
+
+    include_usage = bool((body.get("stream_options") or {}).get("include_usage"))
 
     def chunk(delta: dict, finish: str | None = None) -> str:
         data = {"id": cid, "object": "chat.completion.chunk", "created": created, "model": model,
@@ -309,17 +359,32 @@ async def chat_completions(request: Request):
         return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
 
     async def sse() -> AsyncIterator[str]:
-        yield chunk({"role": "assistant", "content": ""})
-        async for kind, value in items():
-            if kind == "error":
-                yield f"data: {json.dumps({'error': {'message': value.message, 'type': value.kind}})}\n\n"
-                return
-            if kind == "text":
-                yield chunk({"content": value})
-            elif kind == "tool_calls":
-                yield chunk({"tool_calls": _openai_tool_calls(value)})
-            elif kind == "done":
-                yield chunk({}, value)
-        yield "data: [DONE]\n\n"
+        usage, delivered = None, False
+        try:
+            yield chunk({"role": "assistant", "content": ""})
+            async for kind, value in items():
+                if kind == "error":
+                    delivered = True
+                    yield f"data: {json.dumps({'error': {'message': value.message, 'type': value.kind}})}\n\n"
+                    return
+                if kind == "text":
+                    yield chunk({"content": value})
+                elif kind == "usage":
+                    usage = value
+                elif kind == "tool_calls":
+                    yield chunk({"tool_calls": _openai_tool_calls(value)})
+                elif kind == "done":
+                    yield chunk({}, value)
+            delivered = True
+            if include_usage:  # OpenAI stream_options.include_usage: a last chunk with no choices
+                data = {"id": cid, "object": "chat.completion.chunk", "created": created, "model": model,
+                        "choices": [], "usage": _openai_usage(usage)}
+                yield f"data: {json.dumps(data)}\n\n"
+            yield "data: [DONE]\n\n"
+        finally:
+            # client went away mid-answer → stop the Claude run instead of letting it finish unread
+            if not delivered and not task.done():
+                task.cancel()
+                log.info("client disconnected; cancelled the Claude run")
 
     return StreamingResponse(sse(), media_type="text/event-stream")
