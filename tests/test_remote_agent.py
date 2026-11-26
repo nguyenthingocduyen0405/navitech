@@ -357,3 +357,74 @@ def test_transcript_correction_shows_what_was_fixed_or_that_it_failed(audit):
     assert "그룹 미팅 에이전트: 변환본 교정 — 변환본 139줄 중 12줄 교정 (예: 에젠드→에이전트)" in reasoning
     assert "correct_transcript 실행" in reasoning  # Agent가 다시 부른 경우는 보통 Tool처럼
     assert "그룹 미팅 에이전트: 변환본 교정 실패 — 변환본 139줄 중 3줄 교정, 모델 교정 실패: 줄 31–60" in reasoning
+
+
+def test_memory_recall_shows_what_was_found_only_when_something_was(audit):
+    found = {"query": "q", "search": {"mode": "meaning+keyword"}, "skipped_recent": 1, "memories": [
+        {"turn": 3, "at": "2026-11-23 14:05", "request": "K전자가 반도체 회사 인수를 검토한다던데", "response": "…",
+         "handoffs": [], "similarity": 0.52, "matched_by": ["meaning", "keyword"]}]}
+    def run(result):
+        body = ndjson(
+            group({"type": "agent_start", "agent": "group_super", "request": "q"}),
+            group({"type": "tool_start", "agent": "group_super", "tool": "recall_conversation_memory", "args": {"auto": True}}),
+            group({"type": "tool_end", "agent": "group_super", "tool": "recall_conversation_memory", "result": result}),
+            group({"type": "agent_token", "agent": "group_super", "text": "답변"}),
+            group({"type": "done"}),
+        )
+        with make_client(FakeBackend(body), audit) as client:
+            return chat(client, "super-agent", "ceo@example.com").json()["choices"][0]["message"]["reasoning_content"]
+
+    reasoning = run(found)
+    assert "그룹 슈퍼에이전트: 과거 대화 기억 조회 중" in reasoning
+    assert "관련 기억 1건을 답변 맥락에 넣음 (이 채팅에 이미 있는 대화 1건은 제외)" in reasoning
+    assert "· 2026-11-23 14:05 대화 「K전자가 반도체 회사 인수를 검토한다던데」 — 의미 유사도 0.52, 낱말 일치" in reasoning
+    assert "recall_conversation_memory" not in reasoning
+    assert "관련 기억 없음" in run({"search": {"mode": "keyword", "error": "openai: HTTP 401"}, "memories": []})
+    failed = run({"error": "기억을 불러오지 못했습니다: OperationalError"})
+    assert "과거 대화 기억 조회 실패 — 기억을 불러오지 못했습니다: OperationalError (기억 없이 답변)" in failed
+    assert "완료" not in failed
+
+
+REPORT_REF = {"kind": "report", "id": "ADV-2026-11-22-02", "system": "k_electronics", "media_type": "application/pdf",
+              "title": "뉴로엣지 인수 투자심의 보고서 (재평가)", "filename": "뉴로엣지_투자심의보고서_ADV-2026-11-22-02.pdf",
+              "recommendation": "DO_NOT_PROCEED", "recommendation_label": "보류", "evaluation_type": "reevaluation",
+              "classification": 3, "created_at": "2026-11-22T19:44+09:00"}
+
+
+def test_k_electronics_report_reference_becomes_a_report_card_once(audit):
+    body = ndjson(
+        group({"type": "a2a_start", "from": "group_super", "to": "k_super", "request": "뉴로엣지 재평가"}),
+        k({"type": "delegation_start", "from": "k_super", "to": "advisory", "task": "재평가"}),
+        k({"type": "delegation_start", "from": "advisory", "to": "news", "task": "최신 뉴스"}),  # the advisory agent asks itself
+        k({"type": "delegation_end", "from": "advisory", "to": "news", "response": "공급계약 중단"}),
+        # K's own tool result carries the reference too, but it is relayed: the card comes from the Group's a2a_end
+        k({"type": "tool_end", "agent": "advisory", "tool": "add_advisory_details", "result": {"accepted": True, "artifacts": [REPORT_REF]}}),
+        k({"type": "delegation_end", "from": "k_super", "to": "advisory", "response": "보류"}),
+        group({"type": "a2a_end", "from": "group_super", "to": "k_super", "response": "보류", "artifacts": [REPORT_REF]}),
+        group({"type": "agent_token", "agent": "group_super", "text": "재평가 결과 보류입니다."}),
+        group({"type": "done"}),
+    )
+    with make_client(FakeBackend(body), audit) as client:
+        message = chat(client, "super-agent", "ceo@example.com").json()["choices"][0]["message"]
+    answer, *blocks = message["content"].split("\n\n```navitech\n")
+    assert answer == "재평가 결과 보류입니다."
+    assert [json.loads(b.removesuffix("\n```")) for b in blocks] == [{
+        "card": "report", "system": "k_electronics", "id": "ADV-2026-11-22-02", "title": "뉴로엣지 인수 투자심의 보고서 (재평가)",
+        "filename": "뉴로엣지_투자심의보고서_ADV-2026-11-22-02.pdf", "recommendation": "DO_NOT_PROCEED",
+        "recommendation_label": "보류", "evaluation_type": "reevaluation"}]  # what to open, nothing else
+    assert "K전자 경영자문 에이전트 → K전자 뉴스 에이전트 위임: 최신 뉴스" in message["reasoning_content"]
+
+
+def test_group_advisory_report_reference_becomes_a_report_card(audit):
+    ref = {**REPORT_REF, "system": "group", "id": "ADV-2026-11-22-01"}
+    body = ndjson(
+        group({"type": "tool_end", "agent": "advisory", "tool": "record_advisory_opinion", "result": {"accepted": True, "review_id": "ADV-2026-11-22-01"}}),
+        group({"type": "tool_end", "agent": "advisory", "tool": "add_advisory_details", "result": {"accepted": True, "artifacts": [ref]}}),
+        group({"type": "tool_end", "agent": "advisory", "tool": "lookup_advisory_reviews", "result": {"found": True, "artifacts": [ref]}}),
+        group({"type": "agent_token", "agent": "advisory", "text": "조건부 진행"}),
+        group({"type": "done"}),
+    )
+    with make_client(FakeBackend(body), audit) as client:
+        content = chat(client, "advisory-agent", "ceo@example.com").json()["choices"][0]["message"]["content"]
+    blocks = content.split("\n\n```navitech\n")[1:]
+    assert [json.loads(b.removesuffix("\n```"))["id"] for b in blocks] == ["ADV-2026-11-22-01"]  # the same report: one card

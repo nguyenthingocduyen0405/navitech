@@ -8,6 +8,7 @@ backend는 요청 하나를 받아 실행 lifecycle 이벤트를 NDJSON으로 �
     위임 · A2A · Workflow Tool 진행 상황   → status    ("생각" 블록)
     Workflow 결과의 회의 · 기사 id         → citation  (감사 로그)
     회의 Tool 결과(회의록 · 일정 · 할 일 · 메일) → 답변 끝의 ```navitech 블록 (카드)
+    경영자문의 투자심의 보고서 참조(artifacts) → 같은 블록의 보고서 카드 (K전자 것은 Group의 a2a_end에 실려 옴)
     error                                  → text      (어느 Agent가 실패했는지 안내)
 
 카드 블록에는 무엇을 보여 줄지(회의 id · 할 일 id · 메일 id)만 들어갑니다. Open WebUI에 끼워 넣은 스크립트
@@ -65,6 +66,10 @@ SYSTEM_NAMES = {"group": "그룹", "k_electronics": "K전자"}
 # 위임 · A2A 결과를 "생각" 블록에 보여 줄 때의 최대 길이 (전체 답변은 Super Agent가 종합)
 MAX_STATUS_CHARS = 600
 CORRECTION_TOOL = "correct_transcript"  # backend가 회의 Agent보다 먼저 녹음 변환본을 교정할 때도 이 Tool 이벤트로 알림
+# Super Agent가 답하기 전에 backend가 이 사용자의 과거 대화 기억을 찾을 때의 Tool 이벤트 (모델이 부르는 Tool이 아님).
+# 결과(result.memories)에 실제로 찾은 기억이 있을 때만 "찾음"으로 보여 줍니다.
+MEMORY_TOOL = "recall_conversation_memory"
+MAX_MEMORY_REQUEST_CHARS = 80
 # backend는 요청 문자열 하나만 받으므로, 이전 대화는 최근 몇 개만 요청 앞에 붙입니다.
 MAX_HISTORY_MESSAGES = 6
 MAX_HISTORY_CHARS = 1500
@@ -81,6 +86,9 @@ CARD_FENCE = "navitech"
 _CARDS = re.compile(r"```navitech\n.*?```", re.DOTALL)
 MAX_CARD_ITEMS = 12  # 카드 하나에 담는 할 일 · 메일 수
 MAX_CARD_MEETINGS = 4
+# 경영자문의 판단 기록 · 조회 Tool: 결과의 artifacts가 투자심의 보고서 참조 (파일은 열 때 /meetings/reports로 받음)
+ADVISORY_REPORT_TOOLS = ("record_advisory_opinion", "add_advisory_details", "lookup_advisory_reviews")
+REPORT_CARD_KEYS = ("system", "id", "title", "filename", "recommendation", "recommendation_label", "evaluation_type")
 
 
 def _clip(text: str, limit: int) -> str:
@@ -147,6 +155,33 @@ def principal_token(ctx: UserContext, key: str, now: float | None = None) -> str
     return jwt.encode(claims, key, algorithm="HS256")
 
 
+def memory_status(who: str, result) -> list[str]:
+    """과거 대화 기억 조회 결과 → "생각" 블록의 줄들 (찾은 기억마다 한 줄: 언제 · 무슨 요청 · 어떻게 찾았는지)."""
+    result = result if isinstance(result, dict) else {}
+    if result.get("error"):
+        return [f"{who}: 과거 대화 기억 조회 실패 — {result['error']} (기억 없이 답변)"]
+    memories = [m for m in result.get("memories") or [] if isinstance(m, dict)]
+    search = result.get("search") or {}
+    notes = []
+    if result.get("skipped_recent"):
+        notes.append(f"이 채팅에 이미 있는 대화 {result['skipped_recent']}건은 제외")
+    if search.get("error"):
+        notes.append("의미 검색 실패로 낱말로만 찾음")
+    note = f" ({', '.join(notes)})" if notes else ""
+    if not memories:
+        return [f"{who}: 과거 대화 기억 조회 완료 — 관련 기억 없음{note}"]
+    lines = [f"{who}: 과거 대화 기억 조회 완료 — 관련 기억 {len(memories)}건을 답변 맥락에 넣음{note}"]
+    for m in memories:
+        how = []
+        if "meaning" in (m.get("matched_by") or []):
+            how.append(f"의미 유사도 {m['similarity']}" if m.get("similarity") is not None else "의미 유사")
+        if "keyword" in (m.get("matched_by") or []):
+            how.append("낱말 일치")
+        lines.append(f"· {m.get('at', '')} 대화 「{_clip(m.get('request', ''), MAX_MEMORY_REQUEST_CHARS)}」"
+                     + (f" — {', '.join(how)}" if how else ""))
+    return lines
+
+
 def agent_label(agent: str | None, system: str | None) -> str:
     name = AGENT_NAMES.get(agent or "", agent or "Agent")
     if agent in SPECIALIST_PERMISSIONS and system in SYSTEM_NAMES:
@@ -168,17 +203,31 @@ def cited_documents(event: dict) -> list[str]:
 FORM_KEYS = ("draft", "previous", "suggestions", "assumed", "missing", "problems", "conflicts", "unclear", "today", "complete")
 
 
+def report_cards(artifacts, system: str | None = None) -> list[dict]:
+    """backend가 돌려준 보고서 참조 → 보고서 카드 (무엇을 열지만 담고, 파일은 카드가 열 때 /meetings/reports로 받는다)."""
+    out = []
+    for ref in artifacts or []:
+        if isinstance(ref, dict) and ref.get("kind") == "report" and ref.get("id"):
+            card = {"card": "report", **{k: ref.get(k) for k in REPORT_CARD_KEYS if ref.get(k) is not None}}
+            card.setdefault("system", system or "group")
+            out.append(card)
+    return out
+
+
 def cards_from(event: dict) -> list[dict]:
-    """그룹 회의 Tool 결과가 가리키는 회의록 · 일정 · 할 일 · 메일 (K전자에서 relay된 결과는 이 화면의 저장소가 아님)."""
+    """그룹 회의 Tool 결과가 가리키는 회의록 · 일정 · 할 일 · 메일 (K전자에서 relay된 결과는 이 화면의 저장소가 아님),
+    그리고 그룹 경영자문이 돌려준 보고서 참조."""
     result = event.get("result")
     if event.get("relayed") or event.get("system") not in (None, "group") or not isinstance(result, dict):
         return []
     tool = event.get("tool")
+    if tool in ADVISORY_REPORT_TOOLS:
+        return report_cards(result.get("artifacts"), "group")
 
     def ids(rows, limit=MAX_CARD_ITEMS):
         return [r["id"] for r in rows or [] if isinstance(r, dict) and r.get("id")][:limit]
 
-    # 확정 · 예약 · 담당 지정 · 독촉으로 나간 메일 (받는 사람 · 보냄 여부). 한 답변에서 여러 번 한 일은 모아서 보인다 (add)
+    # 확정 · 예약 · 담당 지정 · 리마인더로 나간 메일 (받는 사람 · 보냄 여부). 한 답변에서 여러 번 한 일은 모아서 보인다 (add)
     sent = ids(result.get("mail_queued"))
     mail = [{"card": "mail", "ids": sent, "add": True}] if sent else []
 
@@ -326,6 +375,12 @@ class RemoteAgent:
                 status = f"{agent_label(event.get('from'), system)} → {agent_label(event.get('to'), None)} A2A 요청: {event.get('request', '')}"
             elif kind == "a2a_end":
                 status = f"{agent_label(event.get('to'), None)} A2A 응답: {_clip(event.get('response', ''), MAX_STATUS_CHARS)}"
+                if not event.get("relayed"):  # K전자 경영자문의 보고서 참조: Group의 A2A Tool이 골라 a2a_end에 실어 보냄
+                    cards += report_cards(event.get("artifacts"), "k_electronics")
+            elif kind == "tool_start" and event.get("tool") == MEMORY_TOOL:
+                status = f"{agent_label(event.get('agent'), system)}: 과거 대화 기억 조회 중"
+            elif kind == "tool_end" and event.get("tool") == MEMORY_TOOL:
+                status = "\n".join(memory_status(agent_label(event.get("agent"), system), event.get("result")))
             elif kind == "tool_start" and event.get("tool") == CORRECTION_TOOL and (event.get("args") or {}).get("lines"):
                 status = f"{agent_label(event.get('agent'), system)}: 녹음 변환본 교정 중 ({event['args']['lines']}줄)"
             elif kind == "tool_start":

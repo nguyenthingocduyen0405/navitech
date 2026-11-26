@@ -588,6 +588,8 @@
   .nv-warn{color:#c2410c}.nv-danger{color:#dc2626}
   .nv-loading{padding:14px 16px;color:var(--nv-muted);font-size:13px}
   .nv-err{color:#dc2626;font-size:12px;margin-top:4px}
+  .nv-report{border-left:4px solid var(--nv-brand)}
+  .nv-report .nv-err{flex-basis:100%;margin:0}
   .nv-assign{display:grid;grid-template-columns:1fr 150px auto;gap:6px;margin-top:6px}
   .nv-assign[hidden]{display:none}
   .nv-assign .nv-input{margin:0}
@@ -1611,8 +1613,8 @@
     href ? h('a', { class: 'nv-more', href }, '모두 보기 →') : '');
 
   // 회의 관제 — 지표 4개 (Stripe · Vercel 대시보드처럼), 주제 탭으로 거르기 (GitHub 필터처럼), 회의 표 (Linear · Notion 표처럼:
-  // 일시 · 회의 · 주제 · 녹음 · 회의록 · 결정 · 분공 · 메일), 오른쪽에는 회의 Agent의 활동 (날짜별, GitHub 활동처럼).
-  // 회의를 누르면 오른쪽에서 회의 칸이 열린다 (Linear · Notion의 옆 보기): 개요 · 결정 · 분공 · 메일 탭, 진행 중인 회의는 녹음을 놓는 곳과
+  // 일시 · 회의 · 주제 · 녹음 · 회의록 · 결정 · 후속 업무 · 메일), 오른쪽에는 회의 Agent의 활동 (날짜별, GitHub 활동처럼).
+  // 회의를 누르면 오른쪽에서 회의 칸이 열린다 (Linear · Notion의 옆 보기): 개요 · 결정 · 후속 업무 · 메일 탭, 진행 중인 회의는 녹음을 놓는 곳과
   // 처리 단계 (GitHub Actions · Vercel 배포 기록처럼 단계마다 걸린 시간). 표 · 활동은 10초마다 다시 읽는다. 주제 화면은 #topic/주제.
   const STATE = { alarm: ['이상', 'danger'], warn: ['주의', 'draft'], ok: ['정상', 'final'] };
   const LIVE_MS = 10000;
@@ -1641,7 +1643,7 @@
 
   const progressBar = (done, total) => h('div', { class: 'nv-bar' }, h('span', { style: `width:${total ? Math.round((done / total) * 100) : 0}%` }));
 
-  // 지표를 누르면 오른쪽 칸에 그 목록: 진행 중 · 기록 대기 회의 (#home/live), 예정된 회의 (#home/upcoming), 담당자별 분공 (#home/people)
+  // 지표를 누르면 오른쪽 칸에 그 목록: 진행 중 · 기록 대기 회의 (#home/live), 예정된 회의 (#home/upcoming), 담당자별 업무 현황 (#home/people)
   function kpis(d) {
     const live = d.meetings.filter((m) => m.phase === 'live');
     const pending = d.meetings.filter((m) => m.phase === 'pending');
@@ -1657,7 +1659,7 @@
       kpi('', '예정된 회의', String(upcoming.length), next ? `다음 ${md(next.starts_at)} ${next.starts_at.slice(11)}` : '', '', upcoming.length ? 'upcoming' : '', '일정 →'),
       kpi(d.counts.alarm ? 'live' : d.counts.warn ? 'warn' : '', '확인이 필요한 주제', String(d.counts.alarm + d.counts.warn),
         d.counts.alarm ? `이상 ${d.counts.alarm} · 주의 ${d.counts.warn}` : `주의 ${d.counts.warn}`),
-      kpi(items[2] ? 'warn' : '', '분공 진행', `${items[1] ? Math.round((items[0] / items[1]) * 100) : 0}%`, `${items[0]}/${items[1]}${items[2] ? ` · 지남 ${items[2]}` : ''}`, progressBar(items[0], items[1]), 'people', '담당자별 →'));
+      kpi(items[2] ? 'warn' : '', '업무 진행 현황', `${items[1] ? Math.round((items[0] / items[1]) * 100) : 0}%`, `${items[0]}/${items[1]}${items[2] ? ` · 지남 ${items[2]}` : ''}`, progressBar(items[0], items[1]), 'people', '담당자별 →'));
   }
 
   function subjectTabs(d, reload) {
@@ -1823,7 +1825,7 @@
     }
     return h('div', { class: 'nv-card nv-tbl-card' },
       h('table', { class: 'nv-tbl' },
-        h('thead', {}, h('tr', {}, ['일시', '회의', '주제', '녹음', '회의록', '결정', '분공', '메일'].map((t, i) =>
+        h('thead', {}, h('tr', {}, ['일시', '회의', '주제', '녹음', '회의록', '결정', '후속 업무', '메일'].map((t, i) =>
           h('th', { class: `${[2, 3, 7].includes(i) ? 'opt ' : ''}${[3, 5, 7].includes(i) ? 'num' : ''}` }, t)))),
         h('tbody', {}, group('진행 중', rows.filter((m) => m.phase === 'live')), group('기록 대기', rows.filter((m) => m.phase === 'pending')),
           group('예정', rows.filter((m) => m.phase === 'upcoming')),
@@ -1920,7 +1922,7 @@
       items.map((it) => h('div', { class: 'nv-item' }, avatar(it.owner),
         h('div', { class: 'nv-grow' }, h('div', {}, it.text), h('div', { class: 'nv-meta' }, `${it.owner || '담당 미정'} · ${it.due ? `기한 ${md(it.due)}` : '기한 없음'}`)),
         h('span', { class: `nv-st ${ITEM_TONE[it.status] || ''}` }, ITEM[it.status] || it.status))),
-    ] : empty('분공이 없습니다');
+    ] : empty('담당 업무가 없습니다');
   }
 
   function mailsTab(mails, flying) {
@@ -1931,7 +1933,7 @@
       h('span', { class: `nv-st ${x.status === 'sent' ? 'ok' : x.status === 'failed' ? 'live' : 'warn'}` }, MAIL[x.status] || x.status)));
   }
 
-  // 끝난 회의 (또는 방금 처리한 회의): 개요 · 결정 · 분공 · 메일, 초안이면 아래에 '확정 · 메일 발송'
+  // 끝난 회의 (또는 방금 처리한 회의): 개요 · 결정 · 후속 업무 · 메일, 초안이면 아래에 '확정 · 메일 발송'
   function doneDrawer(d, fresh = false) {
     const m = d.meeting;
     const items = d.items || [];
@@ -1942,7 +1944,7 @@
     const tabs = tabbed([
       ['overview', '개요', () => overviewTab(current)],
       ['decisions', () => `결정 ${decidedOf(current.meeting).length}`, () => decisionsTab(current)],
-      ['items', () => `분공 ${(current.items || []).length}`, () => itemsTab(current)],
+      ['items', () => `후속 업무 ${(current.items || []).length}`, () => itemsTab(current)],
       ['mails', () => `메일 ${(current.mails || []).length}`, () => mailsTab(current.mails || [], flying)],
     ], fresh ? 'decisions' : 'overview', fresh);
     const foot = m.status !== 'final' && d.can_confirm ? h('div', { class: 'nv-dw-foot' },
@@ -1968,15 +1970,15 @@
     const done = items.filter((i) => i.status === 'done').length;
     return [
       drawerHead(m.title, `${when(m.date, m.time)} · ${m.id}`, h('span', { class: `nv-st ${m.status === 'final' ? 'ok' : 'warn'}` }, m.status === 'final' ? '회의록 확정' : '회의록 초안'),
-        [['녹음', rec ? mmss(rec.seconds) : '—'], ['결정', String(decidedOf(m).length)], ['분공', `${done}/${items.length}`],
+        [['녹음', rec ? mmss(rec.seconds) : '—'], ['결정', String(decidedOf(m).length)], ['후속 업무', `${done}/${items.length}`],
           ['메일', mails.length ? `${mails.filter((x) => x.status === 'sent').length}/${mails.length}` : '—']]),
       tabs.bar, tabs.body,
-      askBox(m, ['결정과 근거를 다시 정리해 줘', ...(items.some((i) => i.status !== 'done' && i.status !== 'cancelled') ? ['밀린 일 담당자에게 독촉해 줘'] : [])]),
+      askBox(m, ['결정과 근거를 다시 정리해 줘', ...(items.some((i) => i.status !== 'done' && i.status !== 'cancelled') ? ['밀린 일 담당자에게 리마인더 보내 줘'] : [])]),
       foot,
     ];
   }
 
-  const RUN = [['file', '녹음 파일 받음'], ['stt', '글로 옮기기 · 목소리로 발언자 식별'], ['agent', '회의록 작성 — 회의지원 Agent'], ['out', '결정 · 분공 정리']];
+  const RUN = [['file', '녹음 파일 받음'], ['stt', '글로 옮기기 · 목소리로 발언자 식별'], ['agent', '회의록 작성 — 회의지원 Agent'], ['out', '결정 · 후속 업무 정리']];
 
   // 진행 중인 회의: 녹음을 놓으면 단계마다 진행 (걸린 시간), 끝나면 회의 칸이 결과로 바뀐다
   function liveDrawer(s, drawer) {
@@ -2033,7 +2035,7 @@
         if (!d.meeting) throw new Error('회의록이 저장되지 않았습니다 — 녹음을 다시 놓아 주세요');
         setStep('agent', 'done', 'save_meeting_minutes · 회의록 초안 저장');
         started.out = Date.now();
-        setStep('out', 'done', `결정 ${decidedOf(d.meeting).length} · 분공 ${(d.items || []).length}`);
+        setStep('out', 'done', `결정 ${decidedOf(d.meeting).length} · 후속 업무 ${(d.items || []).length}`);
         await new Promise((r) => setTimeout(r, 900));
         const [head, ...rest] = doneDrawer(d, true);
         drawer.replaceChildren(head, run, ...rest.filter(Boolean));
@@ -2049,7 +2051,7 @@
     const drop = h('div', { class: 'nv-drop', role: 'button', tabindex: '0', onclick: () => input.click(),
       ondragover: (e) => { e.preventDefault(); drop.classList.add('over'); }, ondragleave: () => drop.classList.remove('over'),
       ondrop: (e) => { e.preventDefault(); drop.classList.remove('over'); if (e.dataTransfer.files[0]) process(e.dataTransfer.files[0]); } },
-      svgIcon(ICON.mic), h('b', {}, '회의가 끝나면 녹음 파일을 여기에 놓으세요'), h('span', { class: 'nv-meta' }, '받아쓰기 · 발언자 식별 → 회의록 · 결정 · 분공 → 확정하면 메일'));
+      svgIcon(ICON.mic), h('b', {}, '회의가 끝나면 녹음 파일을 여기에 놓으세요'), h('span', { class: 'nv-meta' }, '받아쓰기 · 발언자 식별 → 회의록 · 결정 · 후속 업무 → 확정하면 메일'));
     return [
       drawerHead(s.title, `${dateLabel(s.starts_at)} ${slot(s)}${s.location ? ` · ${s.location}` : ''} · ${s.id}`,
         s.starts_at.slice(0, 10) < todayIso() ? h('span', { class: 'nv-st warn' }, '회의록 없음 · 녹음 대기')
@@ -2061,7 +2063,7 @@
     ];
   }
 
-  // ---- 분공 진행: 담당자별 (Asana 업무량 · Jira 담당자별 분포처럼 한 줄에 한 사람, 막대는 완료 · 진행 중 · 미착수 · 기한 지남).
+  // ---- 담당자별 업무 현황: (Asana 업무량 · Jira 담당자별 분포처럼 한 줄에 한 사람, 막대는 완료 · 진행 중 · 미착수 · 기한 지남).
   // 사람이 많으면 소속별로 묶어 접는다 (GitHub Projects · Linear의 묶어 보기). 사람을 누르면 그 사람의 할 일이 펼쳐진다. #home/people
   const MANY_PEOPLE = 8;
   let peopleBy = null; // 'person' | 'org' — 처음에는 사람 수로 정한다
@@ -2112,7 +2114,7 @@
     const [due, tone] = done ? ['완료', ''] : dueText(it.due);
     const set = (status) => act(async () => { await api('items', { item_id: it.id, status }); await reload(); });
     const status = h('span', { class: `nv-st ${ITEM_TONE[it.status] || ''}` }, ITEM[it.status] || it.status);
-    // 마지막 기록: 담당자가 메일 버튼으로 알린 상황 · 메모 (또는 독촉 · 기한 변경)
+    // 마지막 기록: 담당자가 메일 버튼으로 알린 상황 · 메모 (또는 리마인더 · 기한 변경)
     const last = it.last && (() => {
       const mail = it.last.note.startsWith('메일로 보고');
       const rest = mail ? it.last.note.replace(/^메일로 보고:?\s*/, '') : it.last.note;
@@ -2196,7 +2198,7 @@
       draw();
       const legend = [['done', '완료', t.done], ['prog', '진행 중', t.prog], ['open', '미착수', t.open], ['late', '기한 지남', t.late]];
       drawer.replaceChildren(
-        drawerHead('분공 진행', `회의 ${meetings}건 · 담당 ${people.length}명 · 할 일 ${t.total}건`, h('span', { class: `nv-st ${t.late ? 'live' : 'ok'}` }, `${pct(t)}% 완료`)),
+        drawerHead('담당자별 업무 현황', `회의 ${meetings}건 · 담당 ${people.length}명 · 할 일 ${t.total}건`, h('span', { class: `nv-st ${t.late ? 'live' : 'ok'}` }, `${pct(t)}% 완료`)),
         h('div', { class: 'nv-pp-sum' }, stackBar(t),
           h('div', { class: 'nv-legend' }, legend.map(([k, label, n]) => h('span', {}, h('i', { class: k }), label, h('b', {}, String(n)))))),
         h('div', { class: 'nv-pp-tools' }, seg, search, late),
@@ -2237,7 +2239,7 @@
           group(`진행 중 ${live.length}`, live.map((m) => row(m, m.time, h('span', { class: 'nv-st live' }, `${minutesSince(m.starts_at)}분째`)))),
           group(`기록 대기 ${pending.length} — 지난 날짜, 회의록 없음`, pending.map((m) => row(m, when(m.date, m.time), h('span', { class: 'nv-st warn' }, '회의록 없음')))),
         ];
-        foot = '회의가 끝나면 회의를 열고 녹음 파일을 놓으세요 — 회의록 · 결정 · 분공은 회의 Agent가 정리합니다';
+        foot = '회의가 끝나면 회의를 열고 녹음 파일을 놓으세요 — 회의록 · 결정 · 후속 업무는 회의 Agent가 정리합니다';
       } else {
         const list = of('upcoming');
         const days = new Map();
@@ -2283,7 +2285,7 @@
           drawer.replaceChildren(...(live ? liveDrawer(s, drawer)
             : [drawerHead(s.title, `${dateLabel(s.starts_at)} ${slot(s)}${s.location ? ` · ${s.location}` : ''} · ${s.id}`, h('span', { class: 'nv-st plan' }, '예정')),
               h('div', { class: 'nv-dw-body' }, scheduledView(s, () => {}).slice(1)),
-              askBox(s, ['이 회의 준비 자료 정리해 줘', '지난 회의에서 밀린 일 담당자에게 독촉해 줘'])]).filter(Boolean));
+              askBox(s, ['이 회의 준비 자료 정리해 줘', '지난 회의에서 밀린 일 담당자에게 리마인더 보내 줘'])]).filter(Boolean));
         } else {
           drawer.replaceChildren(...doneDrawer(d).filter(Boolean));
         }
@@ -2604,8 +2606,68 @@
     mic.click();
   }
 
+  // 투자심의 보고서 카드: 경영자문 Agent가 판단을 저장하고 돌려준 보고서 참조(gateway가 ```navitech 블록으로 붙임).
+  // 파일은 '보고서 열기' · 'PDF 내려받기'를 누를 때 /meetings/reports에서 받는다 (로그인한 사용자의 권한으로 backend가 그때 만듦).
+  const RECOMMENDATION = { PROCEED: ['진행', 'final'], CONDITIONAL_PROCEED: ['조건부 진행', 'draft'], DO_NOT_PROCEED: ['보류', 'danger'] };
+  const EVALUATION = { initial: '최초 평가', reevaluation: '재평가', what_if: 'What-if 평가' };
+  const ADVISOR = { group: '그룹 경영자문', k_electronics: 'K전자 경영자문' };
+
+  async function reportPdf(card) {
+    const res = await fetch('/meetings/reports', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
+      body: JSON.stringify({ system: card.system, id: card.id }),
+    });
+    if (!res.ok || !(res.headers.get('content-type') || '').startsWith('application/pdf')) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || `보고서를 받지 못했습니다 (HTTP ${res.status})`);
+    }
+    const named = (res.headers.get('content-disposition') || '').match(/filename\*=UTF-8''([^;]+)/);
+    return { blob: await res.blob(), name: named ? decodeURIComponent(named[1]) : (card.filename || `${card.id}.pdf`) };
+  }
+
+  function reportCard(c) {
+    cardStyle(); // 다른 카드가 없는 채팅에서도 카드 CSS(코드 블록 숨김 포함)를 넣는다
+    const [label, tone] = RECOMMENDATION[c.recommendation] || [c.recommendation_label || '권고', ''];
+    const err = h('div', { class: 'nv-err', hidden: true });
+    async function run(button, open) {
+      button.disabled = true;
+      err.hidden = true;
+      const tab = open ? window.open('', '_blank') : null; // 팝업 차단을 피하려고 누른 순간 창을 열고, 받은 뒤 PDF를 띄운다
+      try {
+        const { blob, name } = await reportPdf(c);
+        const url = URL.createObjectURL(blob);
+        if (tab) {
+          tab.location.href = url;
+        } else {
+          const a = h('a', { href: url, download: name });
+          document.body.append(a);
+          a.click();
+          a.remove();
+        }
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+      } catch (e) {
+        if (tab) tab.close();
+        err.textContent = e.message;
+        err.hidden = false;
+      } finally {
+        button.disabled = false;
+      }
+    }
+    return h('div', { class: 'nv-card nv-report' },
+      h('div', { class: 'nv-head' },
+        h('div', { class: 'nv-grow' },
+          h('div', { class: 'nv-title' }, c.title || '투자심의 보고서'),
+          h('div', { class: 'nv-meta' }, [ADVISOR[c.system] || '경영자문', EVALUATION[c.evaluation_type], `문서번호 ${c.id}`].filter(Boolean).join(' · '))),
+        h('span', { class: `nv-chip ${tone}` }, label)),
+      h('div', { class: 'nv-actions' },
+        h('button', { class: 'nv-btn primary', type: 'button', onclick: (e) => run(e.currentTarget, true) }, '보고서 열기'),
+        h('button', { class: 'nv-btn', type: 'button', onclick: (e) => run(e.currentTarget, false) }, 'PDF 내려받기'),
+        err));
+  }
+
   const RENDER = { meeting: (c) => meetingCard(c.id), meetings: (c) => meetingsCard(c.ids || []), items: (c) => itemsCard(c.ids || []), mail: (c) => mailCard(c.ids || []),
-    schedule_form: (c, text) => bookingCard(c, text) };
+    schedule_form: (c, text) => bookingCard(c, text), report: (c) => reportCard(c) };
 
   // 답변 안의 ```navitech 블록 → 카드 (Open WebUI가 메시지를 다시 그리면 다시 붙인다)
   function mountCards() {

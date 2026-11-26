@@ -17,8 +17,8 @@ Gateway (FastAPI)  gateway/
 agents-group (Group Agent System, :8001 내부)
      ├── super-agent    ──► 그룹 슈퍼에이전트 ──┬─ 위임 ─► 그룹 미팅 / 뉴스 / 경영자문 에이전트
      │                                          └─ A2A ──► agents-k (K전자 Agent System, :8000 내부)
-     │                                                       K전자 슈퍼에이전트 ─ 위임 ─► 미팅 / 뉴스 / 경영자문
-     ├── advisory-agent ──► 그룹 경영자문 에이전트 (run_mna_review)
+     │                                                       K전자 슈퍼에이전트 ─ 위임 ─► 미팅 / 뉴스 / 경영자문 (경영자문은 미팅 · 뉴스에 조회 전용으로 직접 물음)
+     ├── advisory-agent ──► 그룹 경영자문 에이전트 (지식 그래프 · 미팅/뉴스 조회 → 계산 → 판단 기록 → 투자심의 보고서)
      ├── news-agent     ──► 그룹 뉴스 에이전트 (run_company_risk_news_analysis)
      └── meeting-agent  ──► 그룹 미팅 에이전트 (회의록 · Action Item · 일정 · 메일 발송함)
                                               │
@@ -30,6 +30,9 @@ Gateway가 backend 이벤트를 OpenAI 스트림으로 바꿉니다: 호출한 A
 위임 · A2A · Workflow Tool 진행 상황 → 접을 수 있는 "생각" 블록, Workflow 결과의 회의 · 기사 id → 감사 로그.
 Gateway는 사용자가 쓸 수 있는 전문 Agent 목록을 principal에 담아 보내므로, Super Agent는 권한 없는 전문 Agent(K전자 쪽 포함)는 건너뛰고
 ("사용 권한 없음 → 건너뜀") 나머지 결과로 답합니다. 그래도 권한 없는 위임이 시작되면 Gateway가 그 시점에 응답을 끊습니다 (안전장치).
+경영자문 에이전트가 판단을 저장하며 돌려준 **투자심의 보고서 참조**(K전자 것은 Group의 `a2a_end.artifacts`)는 답변 끝의 **보고서 카드**가 되고,
+카드의 '보고서 열기' · 'PDF 내려받기'는 `POST /meetings/reports`(gateway/reports.py → Group backend `POST /api/reports`)로 PDF를 받습니다 —
+파일은 Agent 사이에 오가지 않고, 열 때 backend가 그 사용자의 권한(경영자문 Agent 권한 + 보고서가 인용한 회의의 열람 등급)으로 만듭니다.
 Agent 전환은 Open WebUI 왼쪽 메뉴의 고정 목록(`DEFAULT_PINNED_MODELS`)에서 하고, 입력창의 모델 선택 버튼은 숨깁니다 (`infra/open-webui/custom.css`).
 
 ### 회의지원 Agent의 회의 전 · 중 · 후 (2026-10-28)
@@ -94,14 +97,15 @@ role별 소유로 미리 만들고, 테이블은 backend가 처음 쓸 때 만�
 | `shared/user_context.py` | `UserContext` — 모든 Agent / 도구에 전달 | 공통 |
 | `shared/access.py` | RAG / 온톨로지용 권한 기반 데이터 필터 규칙 | 공통 (Auth + RAG) |
 | `agents/base.py` | `Agent.run(messages, ctx, task)` 인터페이스와 `AgentEvent` | Agent |
-| `agents/remote.py` | 실제 Agent: Agent backend 호출 + 이벤트 변환 + 위임 권한 검사, 회의 Tool 결과 → 답변 끝 카드 블록 (같은 종류 목록은 뒤의 것, 할 일을 하나씩 바꾸거나 메일을 보낸 결과는 합침; 예약 전 점검(schedule draft)은 내용을 그대로 담은 `schedule_form` 카드 — 같은 답변에서 예약까지 했으면 빼고, 양식이 있으면 날짜 계산용 일정 목록은 뺌) | Agent |
+| `agents/remote.py` | 실제 Agent: Agent backend 호출 + 이벤트 변환 + 위임 권한 검사, 회의 Tool 결과 · 경영자문의 보고서 참조 → 답변 끝 카드 블록 (보고서 참조는 `report` 카드 — K전자 것은 relay된 Tool 결과가 아니라 Group의 `a2a_end.artifacts`에서 한 번만; 같은 종류 목록은 뒤의 것, 할 일을 하나씩 바꾸거나 메일을 보낸 결과는 합침; 예약 전 점검(schedule draft)은 내용을 그대로 담은 `schedule_form` 카드 — 같은 답변에서 예약까지 했으면 빼고, 양식이 있으면 날짜 계산용 일정 목록은 뺌) | Agent |
+| `gateway/reports.py` | **투자심의 보고서** `POST /meetings/reports` `{system, id}` — 채팅의 보고서 카드가 부름. Open WebUI 로그인 토큰 → 경영자문 Agent 권한 확인 → 감사 로그 `[보고서] system id` → Group backend `POST /api/reports`(principal + 서명 토큰, K전자 보고서는 backend가 A2A로 가져옴) → PDF. nginx가 `/meetings/`만 gateway로 보내므로 그 아래 경로 | Agent |
 | `agents/mock.py`, `agents/super_agent.py` | 가짜 Agent — `AGENT_BACKEND_URL`이 비어 있을 때 (테스트, 로컬 실행) | Agent |
 | `agent-backend/` | Agent backend 저장소 (flopsoda/capstone_demo, private) — `backend/`만 이미지로 빌드 | Agent |
 | `infra/agent-backend/Dockerfile` | Agent backend 이미지. `agents-k`, `agents-group` 두 서비스가 같은 Dockerfile 사용 | Agent |
 | `infra/speech-service/` | 화자 식별 STT, 음성 등록 페이지 `/voice/`, 회의 transcript를 id로 보관 (`GET /internal/transcripts/{id}`) | 회의 |
 | `infra/retention/` | Open WebUI가 보관하는 회의 녹음 파일을 보존 기간 후 삭제 | 회의 |
 | `gateway/recording.py` | **회의 관제에서 녹음 받기** `/meetings/api/recording/transcribe`(녹음 → speech-service 받아쓰기 · 발언자 식별) · `/recording/minutes`(회의지원 Agent에게 채팅과 같은 요청, 진행을 NDJSON으로 흘려보냄). 권한은 회의 업무 화면과 같음, 확정 · 메일은 desk `finalize`(Agent 없이) | 회의 |
-| `gateway/mail_action.py` | **메일로 진행 보고** `/meetings/act/<token>` — 업무 배정 · 기한 알림 · 독촉 메일의 버튼(완료 · 진행 중 · 막힘)이 여는 화면. 로그인 없음(외부 담당자도): token은 backend가 할 일 · 받는 사람 · 30일로 서명(`PRINCIPAL_SIGNING_KEY`), 확인도 backend(`/api/mail-action`). 여는 것(GET)은 보여 주기만, '보내기'(POST)를 눌러야 기록 (메일 보안 검사가 링크를 미리 열기 때문). 막힘은 이유 필수, 감사 로그에 남김. 버튼 주소는 agents-group의 `MEETINGS_ACTION_URL`(= `OPENWEBUI_PUBLIC_URL/meetings/act`) | 회의 |
+| `gateway/mail_action.py` | **메일로 진행 보고** `/meetings/act/<token>` — 업무 배정 · 기한 알림 · 리마인더 메일의 버튼(완료 · 진행 중 · 막힘)이 여는 화면. 로그인 없음(외부 담당자도): token은 backend가 할 일 · 받는 사람 · 30일로 서명(`PRINCIPAL_SIGNING_KEY`), 확인도 backend(`/api/mail-action`). 여는 것(GET)은 보여 주기만, '보내기'(POST)를 눌러야 기록 (메일 보안 검사가 링크를 미리 열기 때문). 막힘은 이유 필수, 감사 로그에 남김. 버튼 주소는 agents-group의 `MEETINGS_ACTION_URL`(= `OPENWEBUI_PUBLIC_URL/meetings/act`) | 회의 |
 | `gateway/desk.py`, `gateway/static/meetings/` | **회의 업무 API** `/meetings/api/*` — 채팅의 회의 카드가 씁니다. **회의 업무 화면** `/meetings/`(왼쪽 메뉴 '회의 업무'): `index.html`은 틀만 두고 내용은 채팅의 회의 카드와 같은 코드 `infra/open-webui/loader.js`(`/static/loader.js`)가 그림: 회의록 목록 · 상세(회의록 · 회의 결과 보고서 PDF 내려받기, 감사 로그 기록), Agent가 보낸 메일 기록(실패하면 다시 보내기), Compliance 검토, Action Item 완료를 버튼으로 (Agent 없이 backend `/api/desk/*`). Open WebUI 로그인 토큰으로 사용자를 확인하고 회의지원 Agent 권한이 있어야 열림. 왼쪽 메뉴 링크는 `infra/open-webui/loader.js`. **출석 확인**: 녹음을 올리면 채팅 화면에 30초마다 바뀌는 QR(`checkin`, segno SVG, `PUBLIC_URL`) → 휴대폰 `/meetings/checkin/`에서 같은 로그인으로 출석(그룹이 배정된 회사 계정이면 누구나). 회의 카드의 참석자 고르기는 Keycloak 계정 찾기(`people`), 고른 이메일은 회사 계정인지 확인한 뒤 backend로. **목소리 구분 확인** `/meetings/voice-check/`: 녹음을 올리면 왼쪽에 녹음, 오른쪽에 '이름: 발언' (발언을 누르면 그 시각부터 재생, ✓ · ✗로 채점) — 지금 모델이 발언자를 얼마나 잘 나누는지 듣고 확인하는 화면, 발언자를 나누는 방식(지금 방식 · pyannote)을 골라 같은 녹음을 비교, `gateway/voice_check.py` → speech-service `/internal/review`, 저장 · 학습 없음 | 회의 |
 | `tests/` | Gateway 보안 테스트 | Auth |
 
@@ -170,7 +174,7 @@ Open WebUI는 권한이 부여된 모델만 일반 사용자에게 보여 줍니
 |---|---|
 | `infra/keycloak/themes/capstone/login/resources/css/capstone.css` | 로그인 테마 `capstone` (`keycloak.v2` 상속). 수정 후 페이지 새로고침만 하면 됨 (dev 모드는 테마 캐시 없음) |
 | `infra/open-webui/custom.css` | Open WebUI의 글꼴·글자 크기(기본 10% 확대)·색상·테두리. 수정 후 `sudo docker compose restart open-webui` |
-| `infra/open-webui/loader.js` | Open WebUI에 끼워 넣는 스크립트: 'Agent 목록' 제목, **회의 카드** — gateway가 회의 Tool 결과로 답변 끝에 붙인 ```navitech 블록(회의록 · 일정 · 할 일 · 메일)을 버튼 있는 카드로 바꾸고(PDF · 완료 · 다시 보내기 · 위험 발언 검토 · 확정 요청 · 이 회의 녹음 시작), 왼쪽 메뉴 '노트' 아래 **'회의 업무'** 링크와 그 화면 `/meetings/` — 위 회의록 검색 · 왼쪽 메뉴(구역별 건수) · 본문: **관제**(오늘 띠: 오늘 회의 몇 건 · 끝남 · 진행 중 · 남음 · 다음 회의까지, 보기 목록 · 주(시간 칸에 회의 블록, 지금 시각 빨간 선, 겹치면 나란히) · 월(날마다 3건 + n, 날을 누르면 그 주) — 고른 보기는 기억함, '+ 회의 예약'은 예약 양식(회의명을 쓰면 같은 주제의 지난 회의에서 참석자 · 장소 · 이어지는 안건을 채우고, 빠진 칸은 빨갛게, 애매한 이름은 후보에서 고르고, 겹치는 회의를 알림 → desk schedule create, 채팅의 `schedule_form` 카드도 같은 양식), 지표 4개 — '진행 중인 회의'를 누르면 진행 중 · 기록 대기 회의 목록(`#home/live`), '예정된 회의'를 누르면 날짜별 일정(`#home/upcoming`, 회의를 누르면 그 회의 칸), '분공 진행'을 누르면 담당자별 진행(`#home/people`: 완료 · 진행 중 · 미착수 · 기한 지남 막대, 사람별 / 소속별(회사로 묶음, 담당이 8명을 넘으면 처음부터 소속별), 찾기 · 기한 지남만, 사람을 누르면 그 사람의 할 일과 진행 중 · 완료 버튼) · 주제 탭(불 정상 · 주의 · 이상, 누르면 거름) · 회의 표 일시 · 회의 · 주제 · 녹음 · 회의록 · 결정 · 분공 진행 · 메일(진행 중 · 기록 대기 · 예정 · 완료) · 회의 Agent의 활동(날짜별). 회의를 누르면 오른쪽 옆 보기: 개요 · 결정 · 분공 · 메일 탭, 아래에 '회의 Agent에게 묻기'(입력하거나 제안 문장을 누르면 회의 이름 · id를 붙여 새 회의지원 채팅으로 보냄 — 예정된 회의는 '준비 자료 정리' · '밀린 일 독촉'), 진행 중인 회의는 녹음을 놓으면 처리 단계(단계마다 걸린 시간) → 결과 → 확정 · 메일 발송(메일이 날아가는 모습). 10초마다 다시 읽음, Esc로 닫기), 주제(`#topic/주제`: 결정 흐름 · 재검토 제안), 확인할 일(전제가 흔들린 결정 · 확정 전 회의록 · 보내지 못한 메일), 회의록(검색 · 초안/확정), 일정(날짜별), 할 일(내 할 일 / 전체, 기한별), 메일(상태별). 목록을 누르면 옆에 회의 카드가 열리고(`#minutes/MTG-…`, 뒤로 가기 됨) 카드 · 버튼은 채팅과 같으며, Agent가 할 일은 새 회의지원 채팅으로 보냄, 그리고 **회의지원 Agent 채팅의 회의 녹음** — 녹음 시작 효과 · 녹음 중 표시, ✓를 누르면 글로 옮긴 회의록을 녹음 시각과 함께 자동으로 보내 예약된 회의에 초안 저장 (다른 Agent의 음성 입력은 그대로). 수정 후 `sudo docker compose restart open-webui` (파일 하나를 마운트하므로 재시작해야 반영) |
+| `infra/open-webui/loader.js` | Open WebUI에 끼워 넣는 스크립트: 'Agent 목록' 제목, **회의 카드** — gateway가 회의 Tool 결과로 답변 끝에 붙인 ```navitech 블록(회의록 · 일정 · 할 일 · 메일)을 버튼 있는 카드로 바꾸고(PDF · 완료 · 다시 보내기 · 위험 발언 검토 · 확정 요청 · 이 회의 녹음 시작), 왼쪽 메뉴 '노트' 아래 **'회의 업무'** 링크와 그 화면 `/meetings/` — 위 회의록 검색 · 왼쪽 메뉴(구역별 건수) · 본문: **관제**(오늘 띠: 오늘 회의 몇 건 · 끝남 · 진행 중 · 남음 · 다음 회의까지, 보기 목록 · 주(시간 칸에 회의 블록, 지금 시각 빨간 선, 겹치면 나란히) · 월(날마다 3건 + n, 날을 누르면 그 주) — 고른 보기는 기억함, '+ 회의 예약'은 예약 양식(회의명을 쓰면 같은 주제의 지난 회의에서 참석자 · 장소 · 이어지는 안건을 채우고, 빠진 칸은 빨갛게, 애매한 이름은 후보에서 고르고, 겹치는 회의를 알림 → desk schedule create, 채팅의 `schedule_form` 카드도 같은 양식), 지표 4개 — '진행 중인 회의'를 누르면 진행 중 · 기록 대기 회의 목록(`#home/live`), '예정된 회의'를 누르면 날짜별 일정(`#home/upcoming`, 회의를 누르면 그 회의 칸), '업무 진행 현황'을 누르면 담당자별 업무 현황(`#home/people`: 완료 · 진행 중 · 미착수 · 기한 지남 막대, 사람별 / 소속별(회사로 묶음, 담당이 8명을 넘으면 처음부터 소속별), 찾기 · 기한 지남만, 사람을 누르면 그 사람의 할 일과 진행 중 · 완료 버튼) · 주제 탭(불 정상 · 주의 · 이상, 누르면 거름) · 회의 표 일시 · 회의 · 주제 · 녹음 · 회의록 · 결정 · 후속 업무 진행 · 메일(진행 중 · 기록 대기 · 예정 · 완료) · 회의 Agent의 활동(날짜별). 회의를 누르면 오른쪽 옆 보기: 개요 · 결정 · 후속 업무 · 메일 탭, 아래에 '회의 Agent에게 묻기'(입력하거나 제안 문장을 누르면 회의 이름 · id를 붙여 새 회의지원 채팅으로 보냄 — 예정된 회의는 '준비 자료 정리' · '밀린 일 리마인더'), 진행 중인 회의는 녹음을 놓으면 처리 단계(단계마다 걸린 시간) → 결과 → 확정 · 메일 발송(메일이 날아가는 모습). 10초마다 다시 읽음, Esc로 닫기), 주제(`#topic/주제`: 결정 흐름 · 재검토 제안), 확인할 일(전제가 흔들린 결정 · 확정 전 회의록 · 보내지 못한 메일), 회의록(검색 · 초안/확정), 일정(날짜별), 할 일(내 할 일 / 전체, 기한별), 메일(상태별). 목록을 누르면 옆에 회의 카드가 열리고(`#minutes/MTG-…`, 뒤로 가기 됨) 카드 · 버튼은 채팅과 같으며, Agent가 할 일은 새 회의지원 채팅으로 보냄, 그리고 **회의지원 Agent 채팅의 회의 녹음** — 녹음 시작 효과 · 녹음 중 표시, ✓를 누르면 글로 옮긴 회의록을 녹음 시각과 함께 자동으로 보내 예약된 회의에 초안 저장 (다른 Agent의 음성 입력은 그대로). 수정 후 `sudo docker compose restart open-webui` (파일 하나를 마운트하므로 재시작해야 반영) |
 
 - `OAUTH_AUTO_REDIRECT=true`: Open WebUI 자체 로그인 화면을 건너뛰고 공통 로그인 페이지로 바로 이동합니다.
 - 각 사용자는 **설정 → 인터페이스 → UI Scale**에서 글자 크기를 추가로 조절할 수 있습니다 (기본값에 곱해짐).
@@ -184,11 +188,58 @@ Open WebUI는 권한이 부여된 모델만 일반 사용자에게 보여 줍니
 git -C capstone_demo pull && git -C capstone_demo bundle create capstone_demo.bundle --all
 scp -P <SSH_PORT> capstone_demo.bundle ubuntu@<SERVER_IP>:/tmp/
 # 서버에서
-cd ~/capstone-agent/agent-backend && git pull /tmp/capstone_demo.bundle main
+cd ~/capstone-agent/agent-backend && git pull /tmp/capstone_demo.bundle integration   # 경영자문 재설계 · KG · 대화 기억이 들어간 브랜치
 cd .. && sudo docker compose up -d --build agents-k agents-group
 ```
 
 LLM 모델 변경: `.env`의 `OLLAMA_MODEL` (기본 `deepseek-v4.1-flash`) 수정 후 `docker compose up -d agents-k agents-group`.
+
+## 로컬 실행 · 스크린샷 (경영자문 · 투자심의 보고서)
+
+서버에 올리기 전에 이 PC에서 Open WebUI까지 띄워 확인합니다. Agent backend는 옆 폴더 `../capstone_demo/backend`를 빌드하므로(`docker-compose.local.yml`),
+그 저장소를 `integration`에 두면 소스를 복사하지 않고 최신 backend가 들어갑니다.
+
+```bash
+git -C ../capstone_demo checkout integration && git -C ../capstone_demo pull
+python3 scripts/gen_env.py      # 최초 1회. OPENWEBUI_PUBLIC_URL=http://localhost:8088 로 바꾸고 OLLAMA_API_KEY 추가
+docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build postgres keycloak agents-k agents-group gateway open-webui preview mailpit
+docker compose stop speech-service   # preview가 함께 띄우지만 모델 파일이 없으면 재시작만 반복 (녹음 STT만 안 됨)
+```
+
+- 접속: http://localhost:8088 (Open WebUI), 메일함 http://localhost:8025. 로그인은 데모 계정 `ceo`(경영진, 열람 등급 4) — 보고서를 열려면 경영자문 Agent 권한과
+  보고서가 인용한 회의(뉴로엣지 전략회의는 대외비 3)를 볼 등급이 필요합니다. `secretary`는 경영자문 권한이 없어 Super Agent가 경영자문을 건너뛰고 보고서도 생기지 않습니다.
+- 지식 그래프는 backend 시작 직후와 이후 `KG_SYNC_INTERVAL`(기본 600초)마다 갱신됩니다. 새 기사를 바로 반영하려면 `.env`에 `KG_SYNC_INTERVAL=60`.
+- 대화 기억의 의미 검색은 `MEMORY_EMBED_API_KEY`(OpenAI) 또는 `MEMORY_EMBED_PROVIDER=ollama` + `MEMORY_EMBED_URL`이 있을 때만이고, 없으면 낱말 검색입니다.
+- `infra/open-webui/loader.js`를 고친 뒤에는 `docker compose restart open-webui`.
+
+**시연 장면 (Super Agent에게):**
+
+1. "K전자가 검토 중인 뉴로엣지 인수 타당성을 종합 평가해 줘. 경영진이 볼 투자심의 보고서도 함께 줘." → 생각 블록에 그룹 → K전자 A2A, K전자 경영자문의
+   지식 그래프 조회 · 미팅/뉴스 조회 · `run_mna_review` · 판단 기록이 보이고, 답변(핵심 결론 먼저) 끝에 **보고서 카드**(권고 배지 · 문서번호 · 보고서 열기 · PDF 내려받기).
+2. "뉴로엣지 쪽에 새 소식이 있다던데, 인수 판단을 다시 봐 줘. 달라진 점이 있으면 보고서로 정리해 줘." → 이전 판단을 조회해 비교한 재평가와 새 보고서 카드
+   (보고서에 '이전 판단 대비 변경' 장).
+
+**'뉴스 전' 최초 평가와 '11/17 알파모바일 공급계약 중단' 뒤 재평가를 나눠 찍으려면** (뉴스 seed에는 11/17 기사가 이미 들어 있으므로, **로컬에서만**):
+
+1. 저장소를 비운다 — schema는 init이 role 소유로 만든 것이라 superuser로 지우고 같은 소유로 다시 만든다 (회의 · 뉴스 · 지식 그래프 · 대화 기억 · 판단 이력이 지워지고 seed로 다시 채워짐):
+   ```bash
+   docker compose exec postgres psql -U postgres -d agents -c "
+     DROP SCHEMA kelec CASCADE; CREATE SCHEMA kelec AUTHORIZATION agents_k;
+     DROP SCHEMA kelec_news CASCADE; CREATE SCHEMA kelec_news AUTHORIZATION agents_k;
+     DROP SCHEMA grp CASCADE; CREATE SCHEMA grp AUTHORIZATION agents_group;
+     DROP SCHEMA grp_news CASCADE; CREATE SCHEMA grp_news AUTHORIZATION agents_group;"
+   ```
+2. 11/17 기사를 뺀 뉴스 seed를 agents-k에 마운트하는 override(이 저장소 밖에 두는 파일)로 agents-k · agents-group을 다시 띄운다:
+   ```yaml
+   services:
+     agents-k:
+       volumes:
+         - /path/to/news_before_2026-11-17.json:/srv/app/systems/k_electronics/data/news.json:ro
+   ```
+   `docker compose -f docker-compose.yml -f docker-compose.local.yml -f <override> up -d agents-k agents-group` → 1번 장면을 찍는다.
+3. override 없이 `docker compose -f docker-compose.yml -f docker-compose.local.yml up -d agents-k`(seed가 11/17 기사를 더함) → 지식 그래프가 갱신되면(`KG_SYNC_INTERVAL`) 2번 장면을 찍는다.
+
+모델이 가끔 빈 응답을 내며 실패하면 같은 요청을 다시 보내고 성공한 화면을 씁니다 (한 번에 30초~2분). 모델은 `.env`의 `OLLAMA_MODEL`.
 
 ## 권한 체계 변경
 
