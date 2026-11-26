@@ -1,23 +1,6 @@
 // Open WebUI가 모든 페이지에서 불러오는 빈 훅(/static/loader.js)입니다 (docker-compose.yml에서 이 파일을 덮어씀).
-// 고정 Agent 목록의 제목을 바꾸고, 회의지원 Agent 채팅에 녹음 효과 · 자동 회의록 요청 · 회의 카드를 더합니다.
+// 회의지원 Agent 채팅에 녹음 효과 · 자동 회의록 요청 · 회의 카드를 더합니다.
 // 녹음 파일을 올리면 (어느 채팅이든) 글로 옮기는 진행 상황을 보여 줍니다. 회의 업무 화면(/meetings/)도 이 파일이 같은 카드로 그립니다.
-(() => {
-  // 왼쪽 메뉴의 고정 모델 목록(DEFAULT_PINNED_MODELS) 제목 '모델' → 'Agent 목록'. 그 목록의 제목만 바꿉니다.
-  function rename() {
-    for (const span of document.querySelectorAll('button span')) {
-      if (span.children.length || span.textContent.trim() !== '모델') continue;
-      let section = span.closest('button');
-      for (let i = 0; i < 7 && section; i++) {
-        section = section.parentElement;
-        if (section && section.querySelector('a[href^="/?model="]')) { span.textContent = 'Agent 목록'; break; }
-      }
-    }
-  }
-
-  new MutationObserver(rename).observe(document.documentElement, { childList: true, subtree: true });
-  rename();
-})();
-
 // 회의 업무(/meetings/) · QR 출석(/meetings/checkin/) · 목소리 구분 확인(/meetings/voice-check/) 화면에서 로그인하러 왔으면,
 // 로그인을 마친 뒤 그 화면으로 돌려보낸다 (같은 사이트 주소만).
 (() => {
@@ -98,7 +81,7 @@
     document.head.append(s);
   }
 
-  // 지금 화면의 모델: (숨겨 둔) 모델 선택 버튼에 보이는 이름이 기준이다. sessionStorage.selectedModels는 링크로 들어오면 늦게 바뀐다.
+  // 지금 화면의 모델: 모델 선택 버튼에 보이는 이름이 기준이다. sessionStorage.selectedModels는 링크로 들어오면 늦게 바뀐다.
   let meetingName = '회의지원 Agent';
   const token = localStorage.getItem('token');
   if (token) {
