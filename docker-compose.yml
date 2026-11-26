@@ -268,8 +268,7 @@ services:
       ENABLE_OPENAI_API: "true"
       OPENAI_API_BASE_URL: http://gateway:8000/v1
       OPENAI_API_KEY: ${BACKEND_API_KEY}
-      # Agent 전환은 왼쪽 메뉴에서: 각 Agent를 사이드바에 고정 (권한 없는 Agent는 Open WebUI가 목록에서 뺌)
-      DEFAULT_PINNED_MODELS: super-agent,news-agent,advisory-agent,meeting-agent
+      # Agent 전환은 Agent 선택 버튼에서 (권한 없는 Agent는 Open WebUI가 목록에서 뺌). 왼쪽 메뉴에 고정하지 않음
       # 채팅을 화면 가운데 좁은 칸(58rem)이 아니라 전체 폭으로 — 사용자가 설정 > 인터페이스에서 끌 수 있음
       DEFAULT_INTERFACE_SETTINGS: '{"widescreenMode": true}'
       ENABLE_DIRECT_CONNECTIONS: "false"
