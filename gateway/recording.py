@@ -22,6 +22,7 @@ from gateway.audit import AuditEntry, AuditLog
 from gateway.auth import AuthError, build_user_context
 from gateway.desk import PERMISSION, openwebui_user
 from gateway.directory import Directory, DirectoryUnavailable
+from gateway.lanes import Lanes
 from gateway.permissions import Permissions
 from gateway.settings import Settings
 from shared.user_context import UserContext
@@ -52,6 +53,7 @@ def register_recording(
     permissions: Permissions,
     audit: AuditLog,
     agents: dict[str, Agent],
+    lanes: Lanes,
     transport: httpx.AsyncBaseTransport | None = None,  # 테스트에서 가짜 Open WebUI · speech-service
 ) -> None:
     async def allowed_user(request: Request) -> tuple[UserContext | None, JSONResponse | None]:
@@ -118,7 +120,9 @@ def register_recording(
 
         async def lines():
             try:
-                async for event in agent.run([], ctx, task=minutes_request(meeting_id, filename, text)):
+                # 같은 회의의 회의록 요청은 누가 보냈든 차례로, 전체 동시 실행 수는 채팅과 함께 셉니다 (gateway/lanes.py).
+                run = agent.run([], ctx, task=minutes_request(meeting_id, filename, text))
+                async for event in lanes.stream(f"meeting\n{meeting_id}", run):
                     if event.type in ("status", "text") and event.content:
                         yield json.dumps({"type": event.type, "text": event.content}, ensure_ascii=False) + "\n"
             except Exception:  # 화면에는 실패만 알린다 (자세한 것은 로그)
