@@ -39,7 +39,7 @@ class MeetingAgent:
         yield AgentEvent.text("회의록 초안 저장: MTG-2026-11-03-02")
 
 
-def app_with(speech, agent, audit):
+def app_with(speech, agent, audit, lanes=None):
     agents = {a: agent for a in ("super-agent", "news-agent", "advisory-agent", "meeting-agent")}
     settings = Settings(
         backend_api_key=API_KEY, owui_jwt_secret=JWT_SECRET, permissions_file=str(PERMISSIONS_FILE),
@@ -47,7 +47,8 @@ def app_with(speech, agent, audit):
         keycloak_client_secret="unused", agent_backend_url="http://agents-group:8001", principal_signing_key="s" * 40,
         public_url="https://navitech.example", speech_service_url="http://speech-service:8000", speech_api_key="speech-key",
     )
-    return create_app(settings, directory=FakeDirectory(), audit=audit, agents=agents, desk_transport=httpx.MockTransport(speech.handler))
+    return create_app(settings, directory=FakeDirectory(), audit=audit, agents=agents,
+                      desk_transport=httpx.MockTransport(speech.handler), lanes=lanes)
 
 
 def test_a_recording_dropped_on_a_meeting_is_transcribed_then_written_up():

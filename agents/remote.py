@@ -17,7 +17,9 @@ backend는 요청 하나를 받아 실행 lifecycle 이벤트를 NDJSON으로 �
 
 Super Agent는 backend 안에서 전문 Agent에게 위임합니다. principal에 사용자가 쓸 수 있는 전문 Agent 목록(agents)을
 함께 보내므로, backend는 그 밖의 Agent에는 위임하지 않고 delegation_skipped를 보낸 뒤 나머지로 답합니다.
-그래도 권한 없는 Agent의 delegation_start가 오면 그 시점에 실행을 끊습니다 (Super Agent가 권한표를 우회하는 통로가 되지 않도록).
+그래도 권한 없는 Agent의 delegation_start가 오면 그 시점부터 아무것도 넘기지 않고 PermissionDenied로 끝냅니다
+(Super Agent가 권한표를 우회하는 통로가 되지 않도록). backend는 시작한 실행을 멈추지 않으므로, 그 실행이 끝날 때까지
+읽기만 하고 버린 뒤에 끝냅니다 — 그래야 gateway의 lane(gateway/lanes.py)이 실행이 끝나기 전에 풀리지 않습니다.
 
 요청에는 사용자(principal: email · 이름 · 그룹 · clearance · 쓸 수 있는 전문 Agent)를 함께 보냅니다. backend의 Workflow Tool은
 이 값으로 자료 접근을 거릅니다 (회의 기록의 등급 필터, 작성자 기록). PRINCIPAL_SIGNING_KEY가 있으면 같은 값을
@@ -28,6 +30,7 @@ Open WebUI의 Agent는 모두 Group Agent System으로 갑니다. K전자 Agent 
 """
 
 import json
+import logging
 import re
 import time
 from collections.abc import AsyncIterator
@@ -37,6 +40,8 @@ import jwt
 
 from agents.base import AgentEvent, last_user_text, require_access
 from shared.user_context import PermissionDenied, UserContext
+
+log = logging.getLogger("agents.remote")
 
 # Gateway Agent id → (backend Agent id, 실행 경로)
 BACKEND_AGENTS = {
@@ -331,11 +336,22 @@ class RemoteAgent:
         root = self.backend_agent
         answered = False  # 마지막 진행 상황 이후 이 Agent의 답변 텍스트가 나왔는가
         cards: list[dict] = []
+        denied: str | None = None  # 권한 없는 위임을 본 뒤: 넘기지 않고 backend 실행이 끝날 때까지 읽기만 함
         async for line in lines:
             if not line.strip():
                 continue
-            event = json.loads(line)
+            try:
+                event = json.loads(line)
+            except ValueError:  # 한 줄이 깨져도 실행 전체를 버리지 않음 (끊으면 lane이 실행보다 먼저 풀림)
+                log.warning("Agent backend가 보낸 줄을 읽지 못해 건너뜀: %.120r", line)
+                continue
+            if not isinstance(event, dict):
+                continue
             kind = event.get("type")
+            if denied is not None:
+                if kind in ("done", "error"):
+                    break
+                continue
             system = event.get("system")
             # 상대 system(K전자)에서 relay된 이벤트도 같은 이름을 쓰므로, 이 Agent 자신의 것인지 구분합니다.
             own = not event.get("relayed") and event.get("agent") == root
@@ -365,7 +381,8 @@ class RemoteAgent:
                 permission = SPECIALIST_PERMISSIONS.get(target)
                 if permission and not ctx.can_use(permission):
                     yield AgentEvent.status(f"{agent_label(target, system)}: 사용 권한 없음 → 중단")
-                    raise PermissionDenied(permission)
+                    denied = permission
+                    continue
                 status = f"{agent_label(event.get('from'), system)} → {agent_label(target, system)} 위임: {event.get('task', '')}"
             elif kind == "delegation_skipped":
                 status = f"{agent_label(event.get('to'), system)}: 사용 권한 없음 → 건너뜀"
@@ -403,4 +420,6 @@ class RemoteAgent:
                     yield AgentEvent.text("\n\n")
                     answered = False
                 yield AgentEvent.status(status)
+        if denied is not None:  # backend 실행이 끝났거나(done · error) 연결이 끝남: 이제 권한 중단을 알림
+            raise PermissionDenied(denied)
         yield AgentEvent.text("\n\nAgent backend의 응답이 완료 신호 없이 끊겼습니다.")

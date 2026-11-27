@@ -26,6 +26,14 @@ agents-group (Group Agent System, :8001 내부)
                               Ollama Cloud LLM · fixture 데이터 (agent-backend/backend/app/systems/*/data)
 ```
 
+Gateway는 Agent 실행을 **lane**으로 줄 세웁니다 (`gateway/lanes.py`): 같은 대화의 요청은 앞 실행이 끝난 뒤에 시작하고("생각" 블록에 기다린다고 표시),
+동시에 실행하는 요청은 `GATEWAY_MAX_RUNS`(기본 4)까지, 넘는 요청은 도착 순서대로 기다립니다. 사용자가 멈춤을 눌러도 backend는 시작한 실행을 끝까지 하므로
+lane은 그 실행이 끝날 때 풀립니다. `GATEWAY_LANE_WAIT_SECONDS`(기본 600초)를 넘게 기다리면 실행하지 않고 다시 보내 달라고 답합니다.
+회의 관제의 회의록 요청은 회의마다 lane 하나를 쓰고 같은 동시 실행 한도를 나눠 씁니다 (한도를 넘겨 기다리면 오류 줄, 20초마다 `ping` 줄로 nginx 60초 끊김을 막음).
+권한 없는 위임을 끊을 때도 gateway는 backend 실행이 끝날 때까지 읽고 버린 뒤에 답하므로 lane이 먼저 풀리지 않습니다. 단 backend가 600초 동안 아무것도 보내지 않으면
+(`agents/remote.py` `BACKEND_TIMEOUT`) 연결을 끊고 lane도 풉니다. 스트림이 아닌 요청은 자리를 얻은 순간 연결이 끊겼으면 실행하지 않습니다.
+Group → K전자 A2A는 backend끼리 오가므로 lane을 거치지 않습니다.
+
 Gateway가 backend 이벤트를 OpenAI 스트림으로 바꿉니다: 호출한 Agent 자신의 답변 토큰 → 답변,
 위임 · A2A · Workflow Tool 진행 상황 → 접을 수 있는 "생각" 블록, Workflow 결과의 회의 · 기사 id → 감사 로그.
 Gateway는 사용자가 쓸 수 있는 전문 Agent 목록을 principal에 담아 보내므로, Super Agent는 권한 없는 전문 Agent(K전자 쪽 포함)는 건너뛰고
@@ -96,6 +104,7 @@ role별 소유로 미리 만들고, 테이블은 backend가 처음 쓸 때 만�
 | `infra/keycloak/import/capstone-realm.json` | Realm, 역할, 그룹, 클라이언트, 데모 계정 | Auth |
 | `shared/user_context.py` | `UserContext` — 모든 Agent / 도구에 전달 | 공통 |
 | `shared/access.py` | RAG / 온톨로지용 권한 기반 데이터 필터 규칙 | 공통 (Auth + RAG) |
+| `gateway/lanes.py` | **Lane**: 대화(사용자 + Open WebUI chat id)마다 한 줄, 전체 동시 실행 수 한도, 기다림 한도. 실행은 별도 task가 끝까지 읽어 스트림이 끊겨도 실행이 끝날 때 lane을 풂 | Agent |
 | `agents/base.py` | `Agent.run(messages, ctx, task)` 인터페이스와 `AgentEvent` | Agent |
 | `agents/remote.py` | 실제 Agent: Agent backend 호출 + 이벤트 변환 + 위임 권한 검사, 회의 Tool 결과 · 경영자문의 보고서 참조 → 답변 끝 카드 블록 (보고서 참조는 `report` 카드 — K전자 것은 relay된 Tool 결과가 아니라 Group의 `a2a_end.artifacts`에서 한 번만; 같은 종류 목록은 뒤의 것, 할 일을 하나씩 바꾸거나 메일을 보낸 결과는 합침; 예약 전 점검(schedule draft)은 내용을 그대로 담은 `schedule_form` 카드 — 같은 답변에서 예약까지 했으면 빼고, 양식이 있으면 날짜 계산용 일정 목록은 뺌) | Agent |
 | `gateway/reports.py` | **투자심의 보고서** `POST /meetings/reports` `{system, id}` — 채팅의 보고서 카드가 부름. Open WebUI 로그인 토큰 → 경영자문 Agent 권한 확인 → 감사 로그 `[보고서] system id` → Group backend `POST /api/reports`(principal + 서명 토큰, K전자 보고서는 backend가 A2A로 가져옴) → PDF. nginx가 `/meetings/`만 gateway로 보내므로 그 아래 경로 | Agent |

@@ -231,6 +231,9 @@ services:
       SPEECH_SERVICE_URL: http://speech-service:8000
       SPEECH_API_KEY: ${SPEECH_API_KEY}
       CHECKIN_ENABLED: ${CHECKIN_ENABLED:-1}   # 출석 확인(QR). 0이면 끔
+      # Lane (gateway/lanes.py): 동시에 실행하는 Agent 요청 수, 앞 요청(같은 대화 · 빈자리)을 기다리는 한도(초)
+      GATEWAY_MAX_RUNS: ${GATEWAY_MAX_RUNS:-4}
+      GATEWAY_LANE_WAIT_SECONDS: ${GATEWAY_LANE_WAIT_SECONDS:-600}
       BACKEND_API_KEY: ${BACKEND_API_KEY}
       OWUI_FORWARD_JWT_SECRET: ${OWUI_FORWARD_JWT_SECRET}
       PERMISSIONS_FILE: /app/config/permissions.yaml

@@ -12,7 +12,7 @@ import logging
 import time
 import uuid
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import aclosing, asynccontextmanager
 
 import httpx
 from fastapi import FastAPI, Request
@@ -23,6 +23,7 @@ from agents.registry import build_registry
 from gateway.audit import AuditEntry, AuditLog, PostgresAuditLog
 from gateway.auth import AuthError, build_user_context, check_api_key, verify_openwebui_jwt
 from gateway.desk import register_desk
+from gateway.lanes import WAIT_TIMEOUT, Lanes, LaneTimeout, lane_key
 from gateway.mail_action import register_mail_action
 from gateway.recording import register_recording
 from gateway.reports import register_reports
@@ -89,6 +90,16 @@ async def _guarded(events: AsyncIterator[AgentEvent], cited: list[str]) -> Async
         yield AgentEvent.text("\n\n처리 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.")
 
 
+async def _lane_timeout_as_answer(events: AsyncIterator[AgentEvent]) -> AsyncIterator[AgentEvent]:
+    """lane을 한도 안에 얻지 못하면 실행 대신 다시 보내 달라는 안내로 답합니다."""
+    async with aclosing(events):
+        try:
+            async for event in events:
+                yield event
+        except LaneTimeout:
+            yield AgentEvent.text(WAIT_TIMEOUT)
+
+
 def create_app(
     settings: Settings | None = None,
     *,
@@ -97,8 +108,10 @@ def create_app(
     audit: AuditLog | None = None,
     agents: dict[str, Agent] | None = None,
     desk_transport: httpx.AsyncBaseTransport | None = None,
+    lanes: Lanes | None = None,
 ) -> FastAPI:
     settings = settings or Settings.from_env()
+    lanes = lanes or Lanes(settings.max_agent_runs, settings.lane_wait_seconds)
     permissions = permissions or Permissions.load(settings.permissions_file)
     agents = agents or build_registry(
         {a.id: a.name for a in permissions.agents.values()},
@@ -208,24 +221,29 @@ def create_app(
             return _error(403, f"{permissions.agents[model].name} 사용 권한이 없습니다.")
 
         cited: list[str] = []
-        events = _guarded(agent.run(messages, ctx), cited)
+        # 같은 대화의 요청은 차례로, 전체 동시 실행은 settings.max_agent_runs까지 (gateway/lanes.py)
+        # 스트림이 아닌 요청은 Starlette가 연결 끊김을 알려 주지 않으므로, 자리를 얻은 뒤 직접 확인합니다.
+        events = _lane_timeout_as_answer(lanes.stream(
+            lane_key(ctx.email, ctx.chat_id),
+            _guarded(agent.run(messages, ctx), cited),
+            on_done=lambda: audit.set_documents(entry_id, cited),
+            abandoned=None if body.get("stream") else request.is_disconnected,
+        ))
         completion = Completion(model)
 
         if body.get("stream"):
 
             async def sse():
-                try:
-                    yield completion.chunk({"role": "assistant", "content": ""})
-                    async for event in events:
-                        if event.type == "text":
-                            yield completion.chunk({"content": event.content})
-                        elif event.type == "status":
-                            # Open WebUI는 reasoning_content를 접을 수 있는 "생각" 블록으로 표시합니다.
-                            yield completion.chunk({"reasoning_content": event.content + "\n"})
-                    yield completion.chunk({}, finish_reason="stop")
-                    yield "data: [DONE]\n\n"
-                finally:
-                    await audit.set_documents(entry_id, cited)
+                # 인용 문서는 실행이 끝날 때 lane이 기록합니다 (스트림이 먼저 끊겨도).
+                yield completion.chunk({"role": "assistant", "content": ""})
+                async for event in events:
+                    if event.type == "text":
+                        yield completion.chunk({"content": event.content})
+                    elif event.type == "status":
+                        # Open WebUI는 reasoning_content를 접을 수 있는 "생각" 블록으로 표시합니다.
+                        yield completion.chunk({"reasoning_content": event.content + "\n"})
+                yield completion.chunk({}, finish_reason="stop")
+                yield "data: [DONE]\n\n"
 
             return StreamingResponse(sse(), media_type="text/event-stream")
 
@@ -235,11 +253,10 @@ def create_app(
                 text.append(event.content)
             elif event.type == "status":
                 reasoning.append(event.content)
-        await audit.set_documents(entry_id, cited)
         return completion.full("".join(text), "\n".join(reasoning))
 
     register_voice_check(app, settings, directory, permissions, audit, transport=desk_transport)  # /meetings/api/{endpoint}보다 먼저
-    register_recording(app, settings, directory, permissions, audit, agents, transport=desk_transport)  # 회의 관제에서 녹음 받기
+    register_recording(app, settings, directory, permissions, audit, agents, lanes, transport=desk_transport)  # 회의 관제에서 녹음 받기
     register_mail_action(app, settings, audit, transport=desk_transport)  # 메일 버튼의 진행 보고 (로그인 없음), /meetings 정적 화면보다 먼저
     register_reports(app, settings, directory, permissions, audit, transport=desk_transport)  # 투자심의 보고서, /meetings 정적 화면보다 먼저
     register_desk(app, settings, directory, permissions, audit, transport=desk_transport)

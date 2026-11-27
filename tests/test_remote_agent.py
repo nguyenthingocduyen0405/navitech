@@ -428,3 +428,38 @@ def test_group_advisory_report_reference_becomes_a_report_card(audit):
         content = chat(client, "advisory-agent", "ceo@example.com").json()["choices"][0]["message"]["content"]
     blocks = content.split("\n\n```navitech\n")[1:]
     assert [json.loads(b.removesuffix("\n```"))["id"] for b in blocks] == ["ADV-2026-11-22-01"]  # the same report: one card
+
+
+def test_cut_off_reads_the_backend_run_to_its_end_without_showing_it(audit):
+    # backend는 시작한 실행을 멈추지 않으므로 gateway는 끝까지 읽고(lane이 그때까지 유지됨) 아무것도 넘기지 않습니다.
+    events = [
+        group({"type": "delegation_start", "from": "group_super", "to": "advisory", "task": "인수 검토"}),
+        group({"type": "agent_end", "agent": "advisory", "response": "극비 검토 결과"}),
+        group({"type": "tool_end", "agent": "advisory", "tool": "run_meeting_context_retrieval",
+               "result": {"meetings": [{"id": "MTG-SECRET"}]}}),
+        group({"type": "agent_token", "agent": "group_super", "text": "최종 판단"}),
+        group({"type": "done"}),
+    ]
+    read: list[str] = []
+
+    async def body():
+        for event in events:
+            read.append(event["type"])
+            yield (json.dumps(event, ensure_ascii=False) + "\n").encode()
+
+    with make_client(FakeBackend(), audit, handler=lambda request: httpx.Response(200, content=body())) as client:
+        resp = chat(client, "super-agent", "secretary@example.com")
+    message = resp.json()["choices"][0]["message"]
+    assert read == [e["type"] for e in events]  # 실행이 끝날 때까지 읽음
+    assert "권한이 없습니다" in message["content"]
+    assert "최종 판단" not in message["content"] and "극비" not in message["content"] + message.get("reasoning_content", "")
+    assert audit.entries[-1].doc_ids == []  # 중단 뒤의 인용은 기록하지 않음
+
+
+def test_a_broken_line_is_skipped_not_fatal(audit):
+    body = (ndjson(group({"type": "agent_token", "agent": "news", "text": "앞 "}))
+            + b"{not json\n[1, 2]\n"
+            + ndjson(group({"type": "agent_token", "agent": "news", "text": "뒤"}), group({"type": "done"})))
+    with make_client(FakeBackend(body), audit) as client:
+        resp = chat(client, "news-agent", "ceo@example.com")
+    assert resp.json()["choices"][0]["message"]["content"] == "앞 뒤"
