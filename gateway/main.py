@@ -12,7 +12,7 @@ import logging
 import time
 import uuid
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import aclosing, asynccontextmanager
 
 import httpx
 from fastapi import FastAPI, Request
@@ -23,7 +23,7 @@ from agents.registry import build_registry
 from gateway.audit import AuditEntry, AuditLog, PostgresAuditLog
 from gateway.auth import AuthError, build_user_context, check_api_key, verify_openwebui_jwt
 from gateway.desk import register_desk
-from gateway.lanes import Lanes, lane_key
+from gateway.lanes import WAIT_TIMEOUT, Lanes, LaneTimeout, lane_key
 from gateway.mail_action import register_mail_action
 from gateway.recording import register_recording
 from gateway.reports import register_reports
@@ -88,6 +88,16 @@ async def _guarded(events: AsyncIterator[AgentEvent], cited: list[str]) -> Async
     except Exception:
         log.exception("Agent 실행 실패")
         yield AgentEvent.text("\n\n처리 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.")
+
+
+async def _lane_timeout_as_answer(events: AsyncIterator[AgentEvent]) -> AsyncIterator[AgentEvent]:
+    """lane을 한도 안에 얻지 못하면 실행 대신 다시 보내 달라는 안내로 답합니다."""
+    async with aclosing(events):
+        try:
+            async for event in events:
+                yield event
+        except LaneTimeout:
+            yield AgentEvent.text(WAIT_TIMEOUT)
 
 
 def create_app(
@@ -212,11 +222,13 @@ def create_app(
 
         cited: list[str] = []
         # 같은 대화의 요청은 차례로, 전체 동시 실행은 settings.max_agent_runs까지 (gateway/lanes.py)
-        events = lanes.stream(
+        # 스트림이 아닌 요청은 Starlette가 연결 끊김을 알려 주지 않으므로, 자리를 얻은 뒤 직접 확인합니다.
+        events = _lane_timeout_as_answer(lanes.stream(
             lane_key(ctx.email, ctx.chat_id),
             _guarded(agent.run(messages, ctx), cited),
             on_done=lambda: audit.set_documents(entry_id, cited),
-        )
+            abandoned=None if body.get("stream") else request.is_disconnected,
+        ))
         completion = Completion(model)
 
         if body.get("stream"):

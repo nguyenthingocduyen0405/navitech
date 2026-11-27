@@ -3,26 +3,30 @@
   transcribe  녹음 파일 그대로를 본문으로 (파일 이름은 X-Filename, URI 인코딩) → speech-service /v1/audio/transcriptions
               (채팅의 음성 받아쓰기와 같은 길: 발언자 식별 · transcript id 보관) → {transcript_id, seconds, speakers, lines, text}
   minutes     {meeting_id, filename, text} → 회의지원 Agent에게 채팅과 같은 요청("회의 녹음 파일을 올렸습니다 … 회의: id")을 보내고,
-              Agent가 하는 일(교정 · 저장 …)을 한 줄씩 흘려보낸다 (NDJSON: {"type": "status" | "text" | "done", "text"})
+              Agent가 하는 일(교정 · 저장 …)을 한 줄씩 흘려보낸다 (NDJSON: {"type": "status" | "text" | "error" | "done", "text"}).
+              같은 회의의 요청은 lane 하나로 차례로 (gateway/lanes.py). 20초 넘게 보낼 것이 없으면 {"type": "ping"}을 보낸다
+              (nginx가 /meetings/에서 60초 동안 아무것도 오지 않으면 연결을 끊음; loader.js는 ping을 무시).
 
 권한은 회의 업무 화면과 같다 (Open WebUI 로그인 · 회의지원 Agent 권한). 확정 · 메일은 desk의 finalize (사람이 누름).
 """
 
+import asyncio
 import json
 import logging
 import re
+from collections.abc import AsyncIterator
 from urllib.parse import unquote
 
 import httpx
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from agents.base import Agent
+from agents.base import Agent, AgentEvent
 from gateway.audit import AuditEntry, AuditLog
 from gateway.auth import AuthError, build_user_context
 from gateway.desk import PERMISSION, openwebui_user
 from gateway.directory import Directory, DirectoryUnavailable
-from gateway.lanes import Lanes
+from gateway.lanes import Lanes, LaneTimeout
 from gateway.permissions import Permissions
 from gateway.settings import Settings
 from shared.user_context import UserContext
@@ -34,10 +38,45 @@ STT_TIMEOUT = httpx.Timeout(600.0, connect=5.0)  # 긴 회의는 글로 옮기�
 MEETING_ID = re.compile(r"^MTG-[0-9A-Z-]{6,30}$")
 MAX_TEXT = 400_000
 _SPEAKER = re.compile(r"^\[\d{2}:\d{2}(?::\d{2})?\] ([^:]+):", re.M)
+KEEPALIVE_SECONDS = 20.0  # nginx proxy_read_timeout 기본값(60초)보다 짧게
+WAIT_SAME_MEETING = "같은 회의의 앞 회의록 요청을 처리하는 중입니다. 끝나면 이어서 처리합니다."
+LANE_TIMEOUT_ERROR = "앞 요청이 끝나지 않아 회의록 초안을 만들지 못했습니다. 잠시 후 녹음을 다시 놓아 주세요."
+_END = object()
 
 
 def _error(status: int, message: str) -> JSONResponse:
     return JSONResponse(status_code=status, content={"error": message})
+
+
+async def with_keepalive(events: AsyncIterator[AgentEvent], seconds: float) -> AsyncIterator[AgentEvent | None]:
+    """events를 그대로 내보내되, seconds 동안 아무것도 없으면 None(연결 유지 신호)을 내보냅니다.
+    events는 별도 task가 읽고, 이 generator가 끝나면(연결 끊김 포함) 그 task를 취소합니다."""
+    queue: asyncio.Queue = asyncio.Queue()
+
+    async def produce() -> None:
+        try:
+            async for event in events:
+                queue.put_nowait(event)
+        except Exception as e:
+            queue.put_nowait(e)
+        else:
+            queue.put_nowait(_END)
+
+    task = asyncio.create_task(produce())
+    try:
+        while True:
+            try:
+                item = await asyncio.wait_for(queue.get(), seconds)
+            except TimeoutError:
+                yield None
+                continue
+            if item is _END:
+                return
+            if isinstance(item, Exception):
+                raise item
+            yield item
+    finally:
+        task.cancel()  # 이미 끝났으면 아무 일 없음. 실행 중이던 lane 실행은 lane이 끝까지 읽음
 
 
 def minutes_request(meeting_id: str, filename: str, text: str) -> str:
@@ -122,9 +161,14 @@ def register_recording(
             try:
                 # 같은 회의의 회의록 요청은 누가 보냈든 차례로, 전체 동시 실행 수는 채팅과 함께 셉니다 (gateway/lanes.py).
                 run = agent.run([], ctx, task=minutes_request(meeting_id, filename, text))
-                async for event in lanes.stream(f"meeting\n{meeting_id}", run):
-                    if event.type in ("status", "text") and event.content:
+                laned = lanes.stream(f"meeting\n{meeting_id}", run, same_lane_wait=WAIT_SAME_MEETING)
+                async for event in with_keepalive(laned, KEEPALIVE_SECONDS):
+                    if event is None:
+                        yield json.dumps({"type": "ping"}) + "\n"
+                    elif event.type in ("status", "text") and event.content:
                         yield json.dumps({"type": event.type, "text": event.content}, ensure_ascii=False) + "\n"
+            except LaneTimeout:
+                yield json.dumps({"type": "error", "text": LANE_TIMEOUT_ERROR}, ensure_ascii=False) + "\n"
             except Exception:  # 화면에는 실패만 알린다 (자세한 것은 로그)
                 log.exception("회의 관제 회의록 요청 실패")
                 yield json.dumps({"type": "error", "text": "회의록 초안을 만들지 못했습니다."}, ensure_ascii=False) + "\n"

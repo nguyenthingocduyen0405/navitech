@@ -2,10 +2,14 @@
 
 - 대화마다 lane 하나: 같은 대화(Open WebUI chat id)의 요청은 겹쳐 실행되지 않습니다. 앞 답변이 아직
   만들어지는 중에 보낸 메시지는 앞 실행이 끝날 때까지 기다리고, "생각" 블록에 기다린다고 알립니다.
-- 전체 동시 실행 수 제한(GATEWAY_MAX_RUNS): 넘는 요청은 도착한 순서대로 기다립니다.
+- 전체 동시 실행 수 제한(GATEWAY_MAX_RUNS): 넘는 요청은 도착한 순서대로 기다립니다. 같은 대화의 앞 실행을
+  기다리는 요청은 자리를 차지하지 않습니다 (대화 lane을 먼저 얻고 나서 자리를 기다림).
 - 실행은 Agent backend가 끝낼 때까지 lane을 쥡니다. 사용자가 멈춤을 눌러 스트림이 끊겨도 backend는
   시작한 실행을 끝까지 하므로, 그 사이 다음 메시지를 시작하면 한 대화의 두 실행이 겹치기 때문입니다.
-- 기다림에는 한도(GATEWAY_LANE_WAIT_SECONDS)가 있습니다. 넘으면 실행하지 않고 안내 문장으로 답합니다.
+  (agents/remote.py도 권한 중단 뒤 backend 실행이 끝날 때까지 읽습니다. 단 backend가 BACKEND_TIMEOUT 동안
+  아무것도 보내지 않으면 연결이 끊기고 lane도 풀립니다.)
+- 기다림에는 한도(GATEWAY_LANE_WAIT_SECONDS)가 있습니다. 넘으면 실행하지 않고 LaneTimeout을 냅니다
+  (채팅은 안내 문장, 회의 관제는 오류 줄로 답함).
 
 lane은 gateway 프로세스 메모리에 있습니다 (gateway는 프로세스 하나). Group → K전자 A2A 요청은 backend끼리
 오가므로 lane을 거치지 않고, 그래서 Group 실행이 자기 lane을 기다리며 멈추는 일도 없습니다.
@@ -35,6 +39,11 @@ def lane_key(email: str, chat_id: str | None) -> str:
     return f"{email}\n{chat_id or ''}"
 
 
+def _label(key: str) -> str:
+    """로그용 lane 이름 (사용자 이메일은 빼고 대화 · 회의 id만)."""
+    return key.rsplit("\n", 1)[-1] or "(chat id 없음)"
+
+
 class Lanes:
     def __init__(self, max_runs: int, wait_seconds: float):
         if max_runs < 1:
@@ -46,48 +55,6 @@ class Lanes:
         self._users: dict[str, int] = {}  # lane마다 쥐고 있거나 기다리는 요청 수 (0이 되면 lane을 지움)
         self._tasks: set[asyncio.Task] = set()
 
-    def waiting_reason(self, key: str) -> str | None:
-        """지금 들어가면 기다려야 하는 이유 (없으면 None)."""
-        chat = self._chats.get(key)
-        if chat is not None and chat.locked():
-            return WAIT_SAME_CHAT
-        if self._runs.locked():
-            return WAIT_FULL
-        return None
-
-    async def acquire(self, key: str) -> Callable[[], None]:
-        """key의 lane과 전체 실행 자리 하나를 얻고, 둘을 돌려주는 함수를 반환합니다.
-        한도 안에 얻지 못하면 LaneTimeout. 기다리다 취소되면 아무것도 쥐지 않은 채로 끝납니다."""
-        chat = self._chats.setdefault(key, asyncio.Lock())
-        self._users[key] = self._users.get(key, 0) + 1
-        got_chat = got_run = False
-        try:
-            async with asyncio.timeout(self.wait_seconds):
-                await chat.acquire()
-                got_chat = True
-                await self._runs.acquire()
-                got_run = True
-        except TimeoutError as e:
-            raise LaneTimeout(key) from e
-        finally:
-            if not got_run:
-                if got_chat:
-                    chat.release()
-                self._leave(key)
-
-        released = False
-
-        def release() -> None:
-            nonlocal released
-            if released:
-                return
-            released = True
-            self._runs.release()
-            chat.release()
-            self._leave(key)
-
-        return release
-
     def _leave(self, key: str) -> None:
         self._users[key] -= 1
         if self._users[key] == 0:
@@ -98,22 +65,62 @@ class Lanes:
         self,
         key: str,
         events: AsyncIterator[AgentEvent],
+        *,
         on_done: Callable[[], Awaitable[None]] | None = None,
+        abandoned: Callable[[], Awaitable[bool]] | None = None,
+        same_lane_wait: str = WAIT_SAME_CHAT,
     ) -> AsyncIterator[AgentEvent]:
         """events(Agent 실행)를 key의 lane에서 돌리며 그 이벤트를 내보냅니다.
 
-        기다려야 하면 먼저 status 이벤트로 알리고, 한도를 넘으면 실행 대신 안내 text 하나로 끝냅니다.
+        기다려야 하면 그때마다 status 이벤트로 알립니다 (같은 lane의 앞 실행 → same_lane_wait, 빈자리 → WAIT_FULL).
+        한도 안에 들어가지 못하면 실행하지 않고 LaneTimeout을 냅니다.
+        abandoned: 자리를 얻은 직후 부릅니다. True면(요청한 쪽이 이미 떠남) 실행하지 않고 끝냅니다.
         실행은 별도 task가 끝까지 읽으므로, 받는 쪽이 중간에 그만둬도(스트림 끊김) lane은 실행이 끝난 뒤에 풀립니다.
         on_done은 실행이 끝난 뒤(lane을 푼 뒤) 한 번 부릅니다 (예: 감사 로그에 인용 문서 기록)."""
-        reason = self.waiting_reason(key)
-        if reason:
-            yield AgentEvent.status(reason)
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + self.wait_seconds
+        chat = self._chats.setdefault(key, asyncio.Lock())
+        self._users[key] = self._users.get(key, 0) + 1
+        got_chat = got_run = False
         try:
-            release = await self.acquire(key)
-        except LaneTimeout:
-            log.warning("lane 대기 한도 초과 (%.0f초)", self.wait_seconds)
-            yield AgentEvent.text(WAIT_TIMEOUT)
-            return
+            try:
+                if chat.locked():
+                    yield AgentEvent.status(same_lane_wait)
+                async with asyncio.timeout_at(deadline):
+                    await chat.acquire()
+                got_chat = True
+                if self._runs.locked():
+                    yield AgentEvent.status(WAIT_FULL)
+                async with asyncio.timeout_at(deadline):
+                    await self._runs.acquire()
+                got_run = True
+            except TimeoutError as e:
+                log.warning("lane 대기 한도 초과 (%.0f초): %s", self.wait_seconds, _label(key))
+                raise LaneTimeout(key) from e
+        finally:
+            if not got_run:  # 기다리다 끝남 (한도 초과 · 취소 · 스트림 닫힘): 아무것도 쥐지 않은 채로
+                if got_chat:
+                    chat.release()
+                self._leave(key)
+
+        released = False
+
+        def release() -> None:
+            nonlocal released
+            if not released:
+                released = True
+                self._runs.release()
+                chat.release()
+                self._leave(key)
+
+        try:
+            if abandoned is not None and await abandoned():
+                log.info("기다리는 동안 요청한 쪽이 떠나 실행하지 않음: %s", _label(key))
+                release()
+                return
+        except BaseException:
+            release()
+            raise
 
         queue: asyncio.Queue = asyncio.Queue()
         listening = True
@@ -123,7 +130,7 @@ class Lanes:
             try:
                 async for event in events:
                     queue.put_nowait(event)
-            except Exception as e:  # 받는 쪽에 그대로 넘깁니다 (받는 쪽이 이미 떠났으면 여기서 기록)
+            except Exception as e:  # 받는 쪽에 그대로 넘깁니다 (받는 쪽이 이미 떠났으면 아래에서 기록)
                 failure = e
             finally:
                 release()
@@ -132,11 +139,12 @@ class Lanes:
                         await on_done()
                 except Exception:
                     log.exception("lane 실행 뒤 처리 실패")
-                queue.put_nowait(failure or _END)
+                finally:
+                    queue.put_nowait(failure or _END)  # on_done이 취소돼도 받는 쪽이 멈춰 있지 않게
             if failure is not None and not listening:
                 log.error("스트림이 끊긴 뒤 Agent 실행 실패", exc_info=failure)
 
-        task = asyncio.create_task(pump())
+        task = asyncio.create_task(pump())  # 자리를 얻은 뒤 await 없이 바로 시작 (취소가 끼어들 틈 없음)
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
         try:

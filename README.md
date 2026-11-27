@@ -29,7 +29,10 @@ agents-group (Group Agent System, :8001 내부)
 Gateway는 Agent 실행을 **lane**으로 줄 세웁니다 (`gateway/lanes.py`): 같은 대화의 요청은 앞 실행이 끝난 뒤에 시작하고("생각" 블록에 기다린다고 표시),
 동시에 실행하는 요청은 `GATEWAY_MAX_RUNS`(기본 4)까지, 넘는 요청은 도착 순서대로 기다립니다. 사용자가 멈춤을 눌러도 backend는 시작한 실행을 끝까지 하므로
 lane은 그 실행이 끝날 때 풀립니다. `GATEWAY_LANE_WAIT_SECONDS`(기본 600초)를 넘게 기다리면 실행하지 않고 다시 보내 달라고 답합니다.
-회의 관제의 회의록 요청은 회의마다 lane 하나를 쓰고 같은 동시 실행 한도를 나눠 씁니다. Group → K전자 A2A는 backend끼리 오가므로 lane을 거치지 않습니다.
+회의 관제의 회의록 요청은 회의마다 lane 하나를 쓰고 같은 동시 실행 한도를 나눠 씁니다 (한도를 넘겨 기다리면 오류 줄, 20초마다 `ping` 줄로 nginx 60초 끊김을 막음).
+권한 없는 위임을 끊을 때도 gateway는 backend 실행이 끝날 때까지 읽고 버린 뒤에 답하므로 lane이 먼저 풀리지 않습니다. 단 backend가 600초 동안 아무것도 보내지 않으면
+(`agents/remote.py` `BACKEND_TIMEOUT`) 연결을 끊고 lane도 풉니다. 스트림이 아닌 요청은 자리를 얻은 순간 연결이 끊겼으면 실행하지 않습니다.
+Group → K전자 A2A는 backend끼리 오가므로 lane을 거치지 않습니다.
 
 Gateway가 backend 이벤트를 OpenAI 스트림으로 바꿉니다: 호출한 Agent 자신의 답변 토큰 → 답변,
 위임 · A2A · Workflow Tool 진행 상황 → 접을 수 있는 "생각" 블록, Workflow 결과의 회의 · 기사 id → 감사 로그.

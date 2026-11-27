@@ -1,3 +1,4 @@
+import math
 import os
 from dataclasses import dataclass
 
@@ -11,14 +12,15 @@ def _required(name: str, min_length: int = 1) -> str:
     return value
 
 
-def _number(name: str, default: float, minimum: float) -> float:
+def _number(name: str, default: float, minimum: float, integer: bool = False) -> float:
     raw = os.environ.get(name, "").strip()
     try:
-        value = float(raw) if raw else default
+        value = (int(raw) if integer else float(raw)) if raw else default
     except ValueError as e:
-        raise RuntimeError(f"환경 변수 {name}은(는) 숫자여야 합니다: {raw!r}") from e
-    if value < minimum:
-        raise RuntimeError(f"환경 변수 {name}은(는) {minimum:g} 이상이어야 합니다")
+        kind = "정수" if integer else "숫자"
+        raise RuntimeError(f"환경 변수 {name}은(는) {kind}여야 합니다: {raw!r}") from e
+    if not math.isfinite(value) or value < minimum:
+        raise RuntimeError(f"환경 변수 {name}은(는) {minimum:g} 이상의 유한한 값이어야 합니다: {raw!r}")
     return value
 
 
@@ -70,7 +72,7 @@ class Settings:
             public_url=os.environ.get("PUBLIC_URL", "").strip().rstrip("/"),
             speech_service_url=os.environ.get("SPEECH_SERVICE_URL", "").strip().rstrip("/"),
             speech_api_key=os.environ.get("SPEECH_API_KEY", "").strip(),
-            max_agent_runs=int(_number("GATEWAY_MAX_RUNS", 4, 1)),
+            max_agent_runs=int(_number("GATEWAY_MAX_RUNS", 4, 1, integer=True)),
             lane_wait_seconds=_number("GATEWAY_LANE_WAIT_SECONDS", 600.0, 1),
             checkin_enabled=os.environ.get("CHECKIN_ENABLED", "1").strip().lower() not in ("0", "off", "false", "no"),
         )
